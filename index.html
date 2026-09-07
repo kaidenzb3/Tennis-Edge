@@ -1,0 +1,269 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#07111e" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="Tennis Edge — free WTA pre-match and live Set 2 analysis." />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="icon-192.svg" />
+  <link rel="stylesheet" href="styles.css" />
+  <title>Tennis Edge</title>
+</head>
+<body>
+<div class="app-shell">
+  <header class="topbar">
+    <div>
+      <div class="eyebrow">WTA DECISION ENGINE</div>
+      <h1>Tennis Edge <span class="v">v2</span></h1>
+    </div>
+    <div class="top-actions">
+      <span id="apiDot" class="status-dot off" title="Live API status"></span>
+      <button id="installBtn" class="ghost-btn" hidden>Install</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="view-live" class="view active">
+      <div class="hero card">
+        <div>
+          <span class="pill live">LIVE EDGE</span>
+          <h2>Catch the comeback<br/>before the market does.</h2>
+          <p>Automatic WTA scores + historical form + Tennis Edge Elo. Add Set 1 stats when you want the strongest grade.</p>
+        </div>
+        <div class="hero-score">
+          <span>Strong</span>
+          <strong id="heroThreshold">82+</strong>
+        </div>
+      </div>
+
+      <div id="apiBanner" class="banner">
+        <div>
+          <strong>Connect free live scores</strong>
+          <span>Add a Live Tennis API free key in Settings. The key stays on your device.</span>
+        </div>
+        <button class="small-btn" data-view-jump="settings">Set up</button>
+      </div>
+
+      <div class="section-head">
+        <div>
+          <h3>Live WTA</h3>
+          <p id="liveUpdated">Not refreshed yet</p>
+        </div>
+        <button id="refreshLiveBtn" class="small-btn">↻ Refresh</button>
+      </div>
+
+      <div id="liveMatches" class="match-list">
+        <div class="empty card">Connect your free API key to load live WTA matches.</div>
+      </div>
+
+      <div class="section-head">
+        <div>
+          <h3>Upcoming</h3>
+          <p>Pre-match model board</p>
+        </div>
+        <button id="refreshUpcomingBtn" class="small-btn">Load</button>
+      </div>
+      <div id="upcomingMatches" class="match-list">
+        <div class="empty card">Tap Load after connecting your API key.</div>
+      </div>
+    </section>
+
+    <section id="view-model" class="view">
+      <div class="section-head">
+        <div>
+          <h3>Pre-Match Model</h3>
+          <p>2–0 / 2–1 / pass recommendations</p>
+        </div>
+        <button id="syncHistoryBtn" class="small-btn">Sync data</button>
+      </div>
+
+      <div class="card data-card">
+        <div class="data-row"><span>Historical source</span><strong>Jeff Sackmann / Tennis Abstract</strong></div>
+        <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
+        <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
+      </div>
+
+      <form id="prematchForm" class="card form-card">
+        <div class="grid-2">
+          <label>Player A
+            <input id="preA" placeholder="e.g. Elena Rybakina" required />
+          </label>
+          <label>Player B
+            <input id="preB" placeholder="e.g. Naomi Osaka" required />
+          </label>
+        </div>
+        <label>Surface
+          <select id="preSurface">
+            <option value="Hard">Hard</option>
+            <option value="Clay">Clay</option>
+            <option value="Grass">Grass</option>
+            <option value="Carpet">Carpet</option>
+          </select>
+        </label>
+        <button class="primary-btn" type="submit">Run pre-match model</button>
+      </form>
+      <div id="prematchResult"></div>
+    </section>
+
+    <section id="view-analyzer" class="view">
+      <div class="section-head">
+        <div>
+          <h3>Set 1 Analyzer</h3>
+          <p>Use this when a player loses Set 1.</p>
+        </div>
+      </div>
+
+      <form id="analyzerForm" class="card form-card">
+        <div class="grid-2">
+          <label>Player to back
+            <input id="favName" placeholder="Player name" required />
+          </label>
+          <label>Opponent
+            <input id="oppName" placeholder="Opponent" required />
+          </label>
+        </div>
+
+        <div class="subhead">Automatically filled when available</div>
+        <div class="grid-3">
+          <label>Tennis Edge Elo edge
+            <input id="eloEdge" type="number" value="80" min="-500" max="500" />
+          </label>
+          <label>Last 10 wins
+            <input id="last10" type="number" value="7" min="0" max="10" />
+          </label>
+          <label>Surface last 10
+            <input id="surface10" type="number" value="7" min="0" max="10" />
+          </label>
+        </div>
+
+        <div class="subhead">Set 1</div>
+        <div class="grid-3">
+          <label>Player games
+            <input id="favGames" type="number" value="6" min="0" max="7" />
+          </label>
+          <label>Opponent games
+            <input id="oppGames" type="number" value="7" min="0" max="7" />
+          </label>
+          <label>Set 1 result
+            <select id="lostSet">
+              <option value="yes" selected>Lost Set 1</option>
+              <option value="no">Won Set 1</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="subhead">Live stats — optional but recommended</div>
+        <div class="grid-3">
+          <label>1st serve pts won %
+            <input id="firstWon" type="number" value="65" min="0" max="100" />
+          </label>
+          <label>2nd serve pts won %
+            <input id="secondWon" type="number" value="45" min="0" max="100" />
+          </label>
+          <label>Break pts created
+            <input id="bpCreated" type="number" value="4" min="0" max="30" />
+          </label>
+        </div>
+        <div class="grid-3">
+          <label>Break pts conceded
+            <input id="bpConceded" type="number" value="3" min="0" max="30" />
+          </label>
+          <label>Opponent BP conversion %
+            <input id="oppBpConv" type="number" value="67" min="0" max="100" />
+          </label>
+          <label>Physical status
+            <select id="physical">
+              <option value="good" selected>Looks good</option>
+              <option value="unknown">Unsure</option>
+              <option value="bad">Injury concern</option>
+            </select>
+          </label>
+        </div>
+        <button class="primary-btn" type="submit">Grade live play</button>
+      </form>
+      <div id="analysisResult"></div>
+    </section>
+
+    <section id="view-results" class="view">
+      <div class="section-head">
+        <div>
+          <h3>Results</h3>
+          <p>Track the model instead of guessing.</p>
+        </div>
+        <button id="clearResultsBtn" class="small-btn danger">Clear</button>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat card"><span>Tracked</span><strong id="trackedCount">0</strong></div>
+        <div class="stat card"><span>Win rate</span><strong id="winRate">—</strong></div>
+        <div class="stat card"><span>Strong plays</span><strong id="strongRecord">0-0</strong></div>
+      </div>
+      <div id="resultsList" class="match-list"></div>
+    </section>
+
+    <section id="view-settings" class="view">
+      <div class="section-head">
+        <div>
+          <h3>Settings</h3>
+          <p>Everything is stored only in this browser.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h4>Free live-score connection</h4>
+        <label>Live Tennis API key
+          <input id="apiKey" type="password" placeholder="twjp_..." autocomplete="off" />
+        </label>
+        <div class="button-row">
+          <button id="saveApiBtn" class="primary-btn" type="button">Save key</button>
+          <button id="testApiBtn" class="ghost-btn" type="button">Test</button>
+        </div>
+        <p id="apiTestMsg" class="muted small"></p>
+      </div>
+
+      <div class="card">
+        <h4>Model thresholds</h4>
+        <div class="grid-2">
+          <label>Strong
+            <input id="strongThreshold" type="number" min="65" max="99" value="82"/>
+          </label>
+          <label>Good
+            <input id="goodThreshold" type="number" min="55" max="98" value="72"/>
+          </label>
+        </div>
+        <label class="toggle">
+          <input id="autoRefresh" type="checkbox" checked />
+          <span>Refresh live scores every 15 minutes while app is open</span>
+        </label>
+        <button id="saveSettingsBtn" class="primary-btn" type="button">Save settings</button>
+      </div>
+
+      <div class="card">
+        <h4>Notifications</h4>
+        <p class="muted">Tennis Edge can show an alert while the app is open when a live match reaches a Set 2 watch condition.</p>
+        <button id="notifyBtn" class="ghost-btn" type="button">Enable notifications</button>
+      </div>
+
+      <div class="card info-card">
+        <h4>Data & cost</h4>
+        <p>Live scores use the Live Tennis API free tier. Historical results and our derived Elo/form metrics use Jeff Sackmann's public WTA data under CC BY-NC-SA 4.0.</p>
+        <p>No paid backend, database, or app-store account is required for this version.</p>
+      </div>
+    </section>
+  </main>
+
+  <nav class="bottom-nav">
+    <button data-view="live" class="active">Live</button>
+    <button data-view="model">Model</button>
+    <button data-view="analyzer">Analyzer</button>
+    <button data-view="results">Results</button>
+    <button data-view="settings">Settings</button>
+  </nav>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
