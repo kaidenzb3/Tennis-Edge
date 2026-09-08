@@ -8,126 +8,225 @@ const STORE = {
 let settings=STORE.get("te2-settings",{strong:82,good:72,autoRefresh:true});
 let history=STORE.get("te2-history",[]);
 let modelCache={};
-let liveTimer=null;
 
-function nav(view){
-  document.querySelectorAll(".view").forEach(v=>v.classList.remove("active"));
-  document.querySelectorAll(".bottom-nav button").forEach(b=>b.classList.toggle("active",b.dataset.view===view));
-  $("view-"+view).classList.add("active");
-}
-document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>nav(b.dataset.view));
-document.querySelectorAll("[data-view-jump]").forEach(b=>b.onclick=()=>nav(b.dataset.viewJump));
+// One shared player database for Live, Model, and Analyzer.
+const PlayerDB = {
+  profiles: new Map(),
+  aliases: new Map(),
 
-function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
-function norm(s){return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z0-9 ]/g," ").replace(/\s+/g," ").trim()}
-function pct(n,d){return d?Math.round(n/d*100):0}
-function clamp(n,a,b){return Math.max(a,Math.min(b,n))}
-function logistic(diff){return 1/(1+Math.pow(10,-diff/400))}
-function nowLabel(){return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}
+  key(name){
+    return String(name||"")
+      .normalize("NFD").replace(/[\u0300-\u036f]/g,"")
+      .toLowerCase()
+      .replace(/[^a-z0-9, ]/g," ")
+      .replace(/\s+/g," ")
+      .trim();
+  },
 
-function parseCSV(text){
-  const rows=[]; let row=[],cell="",q=false;
-  for(let i=0;i<text.length;i++){
-    const c=text[i],n=text[i+1];
-    if(c=='"'&&q&&n=='"'){cell+='"';i++}
-    else if(c=='"'){q=!q}
-    else if(c==','&&!q){row.push(cell);cell=""}
-    else if((c=='\n'||c=='\r')&&!q){
-      if(c=='\r'&&n=='\n')i++;
-      row.push(cell); if(row.some(x=>x!==""))rows.push(row); row=[];cell="";
-    } else cell+=c;
-  }
-  if(cell||row.length){row.push(cell);rows.push(row)}
-  if(!rows.length)return[];
-  const h=rows.shift().map(x=>x.trim());
-  return rows.map(r=>Object.fromEntries(h.map((k,i)=>[k,(r[i]??"").trim()])));
-}
-
-async function syncHistory(){
-  $("syncHistoryBtn").textContent="Syncing…"; $("syncHistoryBtn").disabled=true;
-  const year=new Date().getFullYear();
-  const years=[year-2,year-1,year];
-  let all=[];
-  try{
-    for(const y of years){
-      const res=await fetch(`${SACKMANN}/wta_matches_${y}.csv`,{cache:"no-store"});
-      if(!res.ok)continue;
-      const rows=parseCSV(await res.text());
-      all=all.concat(rows);
+  nameForms(name){
+    const raw=String(name||"").trim();
+    if(!raw)return [];
+    const out=new Set([this.key(raw)]);
+    if(raw.includes(",")){
+      const parts=raw.split(",").map(x=>x.trim()).filter(Boolean);
+      if(parts.length>=2) out.add(this.key(parts.slice(1).join(" ")+" "+parts[0]));
+    } else {
+      const parts=raw.split(/\s+/).filter(Boolean);
+      if(parts.length>=2){
+        const first=parts[0], last=parts[parts.length-1];
+        out.add(this.key(last+", "+parts.slice(0,-1).join(" ")));
+        out.add(this.key(first[0]+". "+last));
+        out.add(this.key(first[0]+" "+last));
+        out.add(this.key(last+" "+first[0]));
+      }
     }
-    history=all.filter(r=>r.winner_name&&r.loser_name&&r.tourney_date);
-    STORE.set("te2-history",history);
-    STORE.set("te2-history-updated",Date.now());
-    buildModelCache();
-    renderHistoryStatus();
-    $("syncHistoryBtn").textContent="Synced ✓";
-  }catch(e){
-    alert("Historical data sync failed. Try again when you have internet.");
-    $("syncHistoryBtn").textContent="Retry";
-  }finally{$("syncHistoryBtn").disabled=false;setTimeout(()=>$("syncHistoryBtn").textContent="Sync data",1800)}
-}
-$("syncHistoryBtn").onclick=syncHistory;
+    return [...out];
+  },
+
+  addAlias(alias, canonical){
+    for(const form of this.nameForms(alias)){
+      if(!this.aliases.has(form)) this.aliases.set(form,new Set());
+      this.aliases.get(form).add(canonical);
+    }
+  },
+
+  resolve(name){
+    const forms=this.nameForms(name);
+    // Exact canonical normalized name first.
+    for(const f of forms){
+      if(this.profiles.has(f)) return this.profiles.get(f);
+    }
+    // Then unique alias.
+    for(const f of forms){
+      const set=this.aliases.get(f);
+      if(set && set.size===1){
+        const canonical=[...set][0];
+        return this.profiles.get(canonical)||null;
+      }
+    }
+    // Last-name fallback only when unique.
+    const n=this.key(name);
+    const tokens=n.replace(/,/g," ").split(" ").filter(Boolean);
+    const last=tokens[tokens.length-1];
+    if(last){
+      const candidates=[...this.profiles.values()].filter(p=>{
+        const pt=this.key(p.name).split(" ").filter(Boolean);
+        return pt[pt.length-1]===last;
+      });
+      if(candidates.length===1)return candidates[0];
+    }
+    return null;
+  },
+
+  rebuild(rows){
+    this.profiles.clear(); this.aliases.clear(); modelCache={};
+
+    const sorted=[...rows].sort((a,b)=>Number(a.tourney_date)-Number(b.tourney_date)||Number(a.match_num)-Number(b.match_num));
+    const elo={},surfElo={},recent={};
+    const ensure=(name)=>{
+      if(elo[name]==null)elo[name]=1500;
+      if(!surfElo[name])surfElo[name]={Hard:1500,Clay:1500,Grass:1500,Carpet:1500};
+      if(!recent[name])recent[name]=[];
+    };
+
+    for(const r of sorted){
+      const w=r.winner_name,l=r.loser_name,s=r.surface||"Hard";
+      if(!w||!l)continue;
+      ensure(w);ensure(l);
+
+      const ew=logistic(elo[w]-elo[l]), k=26;
+      elo[w]+=k*(1-ew); elo[l]-=k*(1-ew);
+
+      if(surfElo[w][s]==null)surfElo[w][s]=1500;
+      if(surfElo[l][s]==null)surfElo[l][s]=1500;
+      const es=logistic(surfElo[w][s]-surfElo[l][s]), ks=32;
+      surfElo[w][s]+=ks*(1-es); surfElo[l][s]-=ks*(1-es);
+
+      recent[w].push({win:true,surface:s,date:r.tourney_date,score:r.score});
+      recent[l].push({win:false,surface:s,date:r.tourney_date,score:r.score});
+    }
+
+    for(const name of Object.keys(elo)){
+      const canonical=this.key(name);
+      const profile={
+        name,
+        elo:Math.round(elo[name]),
+        surfElo:Object.fromEntries(Object.entries(surfElo[name]).map(([k,v])=>[k,Math.round(v)])),
+        recent:recent[name]
+      };
+      this.profiles.set(canonical,profile);
+      modelCache[canonical]=profile;
+      this.addAlias(name,canonical);
+    }
+
+    renderPlayerDatalist();
+    return this.profiles.size;
+  }
+};
 
 function buildModelCache(){
-  modelCache={};
-  const sorted=[...history].sort((a,b)=>Number(a.tourney_date)-Number(b.tourney_date)||Number(a.match_num)-Number(b.match_num));
-  const elo={},surfElo={};
-  const recent={};
-  function ensure(name){if(elo[name]==null)elo[name]=1500;if(!surfElo[name])surfElo[name]={Hard:1500,Clay:1500,Grass:1500,Carpet:1500};if(!recent[name])recent[name]=[]}
-  for(const r of sorted){
-    const w=r.winner_name,l=r.loser_name,s=r.surface||"Hard"; ensure(w);ensure(l);
-    const ew=logistic(elo[w]-elo[l]); const k=26;
-    elo[w]+=k*(1-ew); elo[l]-=k*(1-ew);
-    if(surfElo[w][s]==null)surfElo[w][s]=1500;if(surfElo[l][s]==null)surfElo[l][s]=1500;
-    const es=logistic(surfElo[w][s]-surfElo[l][s]); const ks=32;
-    surfElo[w][s]+=ks*(1-es); surfElo[l][s]-=ks*(1-es);
-    recent[w].push({win:true,surface:s,date:r.tourney_date,score:r.score});
-    recent[l].push({win:false,surface:s,date:r.tourney_date,score:r.score});
-  }
-  for(const name of Object.keys(elo))modelCache[norm(name)]={name,elo:Math.round(elo[name]),surfElo:Object.fromEntries(Object.entries(surfElo[name]).map(([k,v])=>[k,Math.round(v)])),recent:recent[name]};
+  const count=PlayerDB.rebuild(history);
+  const pc=$("profileCount"); if(pc)pc.textContent=count.toLocaleString();
 }
 
-function findPlayer(name){
-  const n=norm(name); if(!n)return null;
-  if(modelCache[n])return modelCache[n];
-  const keys=Object.keys(modelCache);
-  let candidates=keys.filter(k=>k===n||k.endsWith(" "+n)||n.endsWith(" "+k));
-  if(candidates.length===1)return modelCache[candidates[0]];
-  const tokens=n.split(" "); const last=tokens[tokens.length-1];
-  candidates=keys.filter(k=>k.split(" ").pop()===last);
-  return candidates.length===1?modelCache[candidates[0]]:null;
-}
+function findPlayer(name){ return PlayerDB.resolve(name); }
 
 function playerMetrics(name,surface="Hard"){
   const p=findPlayer(name); if(!p)return null;
   const rec=[...p.recent].sort((a,b)=>Number(b.date)-Number(a.date));
-  const l10=rec.slice(0,10),s10=rec.filter(x=>x.surface===surface).slice(0,10);
+  const l10=rec.slice(0,10), s10=rec.filter(x=>x.surface===surface).slice(0,10);
   const three=rec.slice(0,10).filter(x=>{
-    const sets=String(x.score||"").split(" ").filter(z=>/^\d/.test(z)); return sets.length>=3;
+    const sets=String(x.score||"").split(" ").filter(z=>/^\d/.test(z));
+    return sets.length>=3;
   }).length;
-  return {name:p.name,elo:p.elo,surfElo:p.surfElo[surface]||1500,last10:l10.filter(x=>x.win).length,surface10:s10.filter(x=>x.win).length,threeSet:three,played10:l10.length,splayed:s10.length};
+  return {
+    name:p.name,elo:p.elo,surfElo:p.surfElo[surface]||1500,
+    last10:l10.filter(x=>x.win).length,
+    surface10:s10.filter(x=>x.win).length,
+    threeSet:three,played10:l10.length,splayed:s10.length
+  };
 }
 
 function prematchModel(a,b,surface){
   const A=playerMetrics(a,surface),B=playerMetrics(b,surface);
-  if(!A||!B)return {error:"I couldn't match one or both players in the local historical data. Try full names or sync the data first."};
-  const globalDiff=A.elo-B.elo,surfDiff=A.surfElo-B.surfElo;
+  if(!A||!B)return {error:"I couldn't match one or both players in the synced player database. Try the full player names or tap Sync data."};
+
+  const globalDiff=A.elo-B.elo, surfDiff=A.surfElo-B.surfElo;
   const formA=A.played10?pct(A.last10,A.played10):50, formB=B.played10?pct(B.last10,B.played10):50;
-  const sA=A.splayed?pct(A.surface10,A.splayed):50,sB=B.splayed?pct(B.surface10,B.splayed):50;
+  const sA=A.splayed?pct(A.surface10,A.splayed):50, sB=B.splayed?pct(B.surface10,B.splayed):50;
   const blended=0.35*globalDiff+0.45*surfDiff+1.15*(formA-formB)+0.8*(sA-sB);
-  const pA=clamp(logistic(blended),.08,.92), pB=1-pA;
-  const fav=pA>=.5?A:B, opp=pA>=.5?B:A, winP=Math.max(pA,pB), diff=(pA>=.5?1:-1)*blended;
+  const pA=clamp(logistic(blended),.08,.92),pB=1-pA;
+  const fav=pA>=.5?A:B,opp=pA>=.5?B:A,winP=Math.max(pA,pB);
   const oppThree=opp.threeSet/Math.max(1,opp.played10),favThree=fav.threeSet/Math.max(1,fav.played10);
-  let droppedSet=clamp(.24 + .22*oppThree + .14*favThree - .16*(winP-.5), .15,.55);
-  let p21=winP*droppedSet, p20=winP-p21;
+
+  let droppedSet=clamp(.24+.22*oppThree+.14*favThree-.16*(winP-.5),.15,.55);
+  let p21=winP*droppedSet,p20=winP-p21;
   let lean="PASS",grade=60;
-  if(winP>=.78 && p20>p21*1.3){lean="2–0";grade=Math.round(65+winP*25)}
-  else if(winP>=.62 && p21>=.20){lean="2–1";grade=Math.round(64+winP*22+Math.min(8,(oppThree+favThree)*7))}
+  if(winP>=.78&&p20>p21*1.3){lean="2–0";grade=Math.round(65+winP*25)}
+  else if(winP>=.62&&p21>=.20){lean="2–1";grade=Math.round(64+winP*22+Math.min(8,(oppThree+favThree)*7))}
   else if(winP>=.58){lean="ML";grade=Math.round(58+winP*22)}
   grade=clamp(grade,1,96);
-  return {A,B,fav,opp,winP,p20,p21,lean,grade,eloEdge:Math.round((fav===A?1:-1)*globalDiff),surfaceEdge:Math.round((fav===A?1:-1)*surfDiff)};
+
+  return {
+    A,B,fav,opp,winP,p20,p21,lean,grade,
+    eloEdge:Math.round((fav===A?1:-1)*globalDiff),
+    surfaceEdge:Math.round((fav===A?1:-1)*surfDiff)
+  };
 }
 
+function renderPlayerDatalist(){
+  const dl=$("playerNames"); if(!dl)return;
+  const names=[...PlayerDB.profiles.values()].map(p=>p.name).sort((a,b)=>a.localeCompare(b));
+  dl.innerHTML=names.map(n=>`<option value="${esc(n)}"></option>`).join("");
+}
+
+function updateAnalyzerProfile(autoFill=true){
+  const favName=$("favName")?.value.trim(),oppName=$("oppName")?.value.trim();
+  const surface=$("anSurface")?.value||"Hard",strip=$("analyzerProfile");
+  if(!strip)return;
+
+  const F=playerMetrics(favName,surface), O=playerMetrics(oppName,surface);
+  if(!F || !O){
+    strip.innerHTML="<span>Waiting for both players to match the synced database.</span>";
+    return false;
+  }
+  const eloEdge=F.elo-O.elo, surfaceEdge=F.surfElo-O.surfElo;
+
+  strip.innerHTML=`
+    <div class="profile-item"><span>Overall Elo</span><strong>${F.elo}</strong></div>
+    <div class="profile-item"><span>${esc(surface)} Elo</span><strong>${F.surfElo}</strong></div>
+    <div class="profile-item"><span>Elo edge</span><strong>${eloEdge>=0?"+":""}${eloEdge}</strong></div>
+    <div class="profile-item"><span>Last 10</span><strong>${F.last10}-${Math.max(0,F.played10-F.last10)}</strong></div>
+    <div class="profile-item"><span>${esc(surface)} L10</span><strong>${F.surface10}-${Math.max(0,F.splayed-F.surface10)}</strong></div>
+    <span class="synced-note">Synced profile · surface edge ${surfaceEdge>=0?"+":""}${surfaceEdge} vs ${esc(O.name)}</span>`;
+
+  if(autoFill){
+    $("eloEdge").value=eloEdge;
+    $("last10").value=F.last10;
+    $("surface10").value=F.surface10;
+  }
+  return true;
+}
+
+function refreshSyncedViews(){
+  renderHistoryStatus();
+  updateAnalyzerProfile(true);
+
+  const live=STORE.get("te2-live-cache",null),up=STORE.get("te2-upcoming-cache",null);
+  if(live?.data){
+    $("liveMatches").innerHTML=live.data.map(m=>matchCard(m,true)).join("")||'<div class="empty card">No live matches in cache.</div>';
+  }
+  if(up?.data){
+    $("upcomingMatches").innerHTML=up.data.map(m=>matchCard(m,false)).join("")||'<div class="empty card">No upcoming matches in cache.</div>';
+  }
+  bindAnalyzeButtons();
+
+  // Re-run visible pre-match result if both names are already entered.
+  if($("preA")?.value.trim() && $("preB")?.value.trim()){
+    const m=prematchModel($("preA").value,$("preB").value,$("preSurface").value);
+    $("prematchResult").innerHTML=renderPrematch(m);
+  }
+}
 function renderPrematch(m){
   if(m.error)return `<div class="result-card"><div class="result-title">No model result</div><p class="muted">${esc(m.error)}</p></div>`;
   const cls=m.grade>=settings.strong?"STRONG":m.grade>=settings.good?"GOOD":"WATCH";
@@ -254,10 +353,8 @@ function bindAnalyzeButtons(){
     const a=btn.dataset.a,b=btn.dataset.b,s=btn.dataset.s;
     const pm=prematchModel(a,b,s);
     const fav=pm.error?(btn.dataset.fav||a):pm.fav.name,opp=norm(fav)===norm(a)?b:a;
-    $("favName").value=fav;$("oppName").value=opp;
-    if(!pm.error){
-      $("eloEdge").value=pm.eloEdge;$("last10").value=pm.fav.last10;$("surface10").value=pm.fav.surface10;
-    }
+    $("favName").value=fav;$("oppName").value=opp;$("anSurface").value=s;
+    updateAnalyzerProfile(true);
     nav("analyzer");
   })
 }
@@ -306,6 +403,7 @@ function configureTimer(){if(liveTimer)clearInterval(liveTimer);if(settings.auto
 
 function renderHistoryStatus(){
   $("historyCount").textContent=history.length.toLocaleString();
+  if($("profileCount")) $("profileCount").textContent=PlayerDB.profiles.size.toLocaleString();
   const t=STORE.get("te2-history-updated",0);$("historyUpdated").textContent=t?new Date(t).toLocaleString():"Never";
 }
 function loadCaches(){
@@ -320,5 +418,16 @@ window.addEventListener("beforeinstallprompt",e=>{e.preventDefault();deferredPro
 $("installBtn").onclick=async()=>{if(!deferredPrompt)return;deferredPrompt.prompt();await deferredPrompt.userChoice;deferredPrompt=null;$("installBtn").hidden=true};
 if("serviceWorker"in navigator)window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js"));
 
-buildModelCache();renderHistoryStatus();setupSettings();renderResults();loadCaches();configureTimer();
+let analyzerDebounce=null;
+["favName","oppName"].forEach(id=>{
+  $(id).addEventListener("input",()=>{
+    clearTimeout(analyzerDebounce);
+    analyzerDebounce=setTimeout(()=>updateAnalyzerProfile(true),250);
+  });
+  $(id).addEventListener("change",()=>updateAnalyzerProfile(true));
+  $(id).addEventListener("blur",()=>updateAnalyzerProfile(true));
+});
+$("anSurface").addEventListener("change",()=>updateAnalyzerProfile(true));
+
+buildModelCache();renderHistoryStatus();setupSettings();renderResults();loadCaches();configureTimer();updateAnalyzerProfile(false);
 if(!history.length)setTimeout(syncHistory,700);

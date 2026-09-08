@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#07111e",
   "theme_color": "#07111e",
-  "description": "Free WTA pre-match and live Set 2 decision engine.",
+  "description": "Tennis Edge v2.1 \u2014 synced WTA Elo, form, pre-match and live Set 2 analysis.",
   "icons": [
     {
       "src": "icon-192.svg",

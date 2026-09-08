@@ -1,8 +1,20 @@
-# Tennis Edge v2
+# Tennis Edge v2.1
 
 A mobile-first, installable WTA analysis PWA.
 
-## v2 adds
+## v2.1 sync fix
+
+v2.1 introduces one shared PlayerDB used by **Live, Model, and Analyzer**.
+
+- Overall Elo, surface Elo, Last 10, surface Last 10 and three-set rate are calculated once.
+- All tabs read the same player profile.
+- Finishing a historical sync immediately rebuilds the Live and Upcoming boards.
+- Opening a live match sends the same synced profile into the Analyzer.
+- Typing/selecting players in the Analyzer automatically fills Elo edge and form.
+- Changing the Analyzer surface immediately swaps to the correct surface profile.
+- Improved name matching supports common variants such as `Elena Rybakina`, `Rybakina, Elena`, and `E. Rybakina`.
+
+## v2 features
 - Automatic live WTA match loading
 - Automatic upcoming WTA match board
 - 15-minute live refresh while the app is open

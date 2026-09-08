@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2</span></h1>
+      <h1>Tennis Edge <span class="v">v2.1</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -82,6 +82,7 @@
 
       <div class="card data-card">
         <div class="data-row"><span>Historical source</span><strong>Jeff Sackmann / Tennis Abstract</strong></div>
+        <div class="data-row"><span>Player profiles</span><strong id="profileCount">0</strong></div>
         <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
         <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
       </div>
@@ -119,14 +120,28 @@
       <form id="analyzerForm" class="card form-card">
         <div class="grid-2">
           <label>Player to back
-            <input id="favName" placeholder="Player name" required />
+            <input id="favName" list="playerNames" placeholder="Player name" required />
           </label>
           <label>Opponent
-            <input id="oppName" placeholder="Opponent" required />
+            <input id="oppName" list="playerNames" placeholder="Opponent" required />
           </label>
         </div>
+        <label>Surface
+          <select id="anSurface">
+            <option value="Hard">Hard</option>
+            <option value="Clay">Clay</option>
+            <option value="Grass">Grass</option>
+            <option value="Carpet">Carpet</option>
+          </select>
+        </label>
 
-        <div class="subhead">Automatically filled when available</div>
+        <datalist id="playerNames"></datalist>
+
+        <div id="analyzerProfile" class="profile-strip">
+          <span>Type/select both players and Tennis Edge will sync Elo + form here.</span>
+        </div>
+
+        <div class="subhead">Synced player profile</div>
         <div class="grid-3">
           <label>Tennis Edge Elo edge
             <input id="eloEdge" type="number" value="80" min="-500" max="500" />
@@ -208,7 +223,7 @@
       <div class="section-head">
         <div>
           <h3>Settings</h3>
-          <p>Everything is stored only in this browser.</p>
+          <p>Player Elo/form is synced across Live, Model, and Analyzer.</p>
         </div>
       </div>
 
