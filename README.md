@@ -1,6 +1,19 @@
-# Tennis Edge v2.3
+# Tennis Edge v2.4
 
 A mobile-first, installable WTA analysis PWA.
+
+## v2.4 critical historical-sync fix
+
+The v2.3 historical URL was reachable, but the app attempted to save the **entire ~50-column, 14,000+ match CSV into localStorage**. On phones this can exceed the browser's storage quota and show only "Sync failed."
+
+v2.4 now:
+- downloads the public WTA source,
+- immediately reduces every match to only the six fields needed for Tennis Edge,
+- stores that compact dataset,
+- migrates any old oversized cache,
+- shows the exact source error in Settings if anything still fails.
+
+This is the version to use on your phone.
 
 ## v2.3 fixes
 

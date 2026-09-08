@@ -224,27 +224,51 @@ async function syncHistory(force=false){
   try{
     const res=await fetch(`${HISTORICAL_SOURCE}?ts=${Date.now()}`,{cache:"no-store"});
     if(!res.ok) throw new Error(`Historical source HTTP ${res.status}`);
+
     const rows=parseCSV(await res.text());
     if(rows.length<5000) throw new Error(`Historical source returned only ${rows.length} rows`);
 
-    history=rows.filter(r=>r.winner_name&&r.loser_name&&r.tourney_date);
+    // CRITICAL v2.4 FIX:
+    // The raw CSV has ~50 columns and is too large for phone localStorage.
+    // Keep only the six fields Tennis Edge actually needs for Elo/form.
+    history=rows
+      .filter(r=>r.winner_name&&r.loser_name&&r.tourney_date)
+      .map(r=>({
+        winner_name:r.winner_name,
+        loser_name:r.loser_name,
+        surface:r.surface||"Hard",
+        tourney_date:r.tourney_date,
+        match_num:r.match_num||"",
+        score:r.score||""
+      }));
+
     if(history.length<5000) throw new Error("Historical source parsed, but too few usable WTA matches remained.");
 
-    STORE.set("te2-history",history);
-    STORE.set("te2-history-updated",Date.now());
+    // Persist only the compact version. This avoids Safari/Chrome quota failures.
+    try{
+      STORE.set("te2-history",history);
+      STORE.set("te2-history-updated",Date.now());
+    }catch(storageErr){
+      // If an old oversized cache is blocking storage, wipe only Tennis Edge historical cache and retry.
+      localStorage.removeItem("te2-history");
+      localStorage.removeItem("te2-history-updated");
+      STORE.set("te2-history",history);
+      STORE.set("te2-history-updated",Date.now());
+    }
 
     buildModelCache();
     refreshAllModelViews();
     setSourceStatus("history","ok");
     clearSourceError();
+
     if(btn){ btn.textContent="Synced ✓"; setTimeout(()=>btn.textContent="Sync data",1500); }
   }catch(err){
     console.error(err);
     setSourceStatus("history","bad");
-    setSourceError(err.message||String(err));
+    setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
     if(btn) btn.textContent="Sync failed";
     if(!history.length){
-      $("modelBoard").innerHTML='<div class="empty card missing-list">Historical data could not load. Open Settings → Source status, then Force full source sync.</div>';
+      $("modelBoard").innerHTML='<div class="empty card missing-list">Historical sync failed. Check Settings → Source status for the exact error.</div>';
     }
   }finally{
     if(btn) btn.disabled=false;
@@ -670,7 +694,7 @@ async function refreshLive(){
     maybeNotify(data);
   }catch(err){
     $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
-    setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
+    setApiConnected(false); setSourceStatus("live","bad"); setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
   }finally{
     $("refreshLiveBtn").textContent="↻ Refresh"; $("refreshLiveBtn").disabled=false;
   }
@@ -689,7 +713,7 @@ async function refreshUpcoming(){
     refreshModelBoard();
   }catch(err){
     $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
-    setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
+    setApiConnected(false); setSourceStatus("live","bad"); setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
   }finally{
     $("refreshUpcomingBtn").textContent="Load"; $("refreshUpcomingBtn").disabled=false;
   }
@@ -909,7 +933,7 @@ $("forceSourceSyncBtn").onclick=async()=>{
     $("forceSourceSyncBtn").textContent="Full sync complete ✓";
     setTimeout(()=>$("forceSourceSyncBtn").textContent="Force full source sync",1600);
   }catch(err){
-    setSourceError(err.message||String(err));
+    setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
     $("forceSourceSyncBtn").textContent="Sync failed";
   }
 };
@@ -920,7 +944,28 @@ window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredP
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js"));
 
+
+function migrateHistoricalCache(){
+  // Older builds attempted to store the entire ~50-column historical CSV.
+  // Convert any surviving old cache into the compact six-field format.
+  if(!Array.isArray(history) || !history.length) return;
+  const sample=history[0]||{};
+  const keys=Object.keys(sample);
+  if(keys.length>10 || "winner_rank" in sample || "w_ace" in sample){
+    history=history.map(r=>({
+      winner_name:r.winner_name,
+      loser_name:r.loser_name,
+      surface:r.surface||"Hard",
+      tourney_date:r.tourney_date,
+      match_num:r.match_num||"",
+      score:r.score||""
+    })).filter(r=>r.winner_name&&r.loser_name&&r.tourney_date);
+    try{ STORE.set("te2-history",history); }catch(_){}
+  }
+}
+
 // ---------- Start ----------
+migrateHistoricalCache();
 setupSettings();
 if(history.length) setSourceStatus("history","ok");
 if(getApiKey()) setSourceStatus("live","loading");
