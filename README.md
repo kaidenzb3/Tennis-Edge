@@ -1,8 +1,28 @@
-# Tennis Edge v2.1
+# Tennis Edge v2.2
 
 A mobile-first, installable WTA analysis PWA.
 
-## v2.1 sync fix
+## v2.2 fixes
+
+- Restored the historical sync functions that were accidentally broken in v2.1.
+- Uses one shared PlayerDB for Live, Model and Analyzer.
+- Historical WTA data now auto-syncs twice per day and recalculates Elo everywhere.
+- Uses five recent seasons for more stable Elo ratings.
+- Automatic Model Board now uses all cached Live + Upcoming WTA matches.
+- Fixed the Live Tennis API score parser: free match objects expose `sets`, `games`, `points`, and `server` at the top level.
+- Opening a live match in Analyzer now automatically fills:
+  - player/opponent
+  - surface
+  - Elo edge
+  - last 10
+  - surface last 10
+  - Set 1 games won/lost
+  - whether the selected player won/lost Set 1
+- Data not supplied by the free API is deliberately blank and highlighted **red** so you know exactly what must be entered manually.
+- Current free-feed manual fields: 1st-serve points won, 2nd-serve points won, break points created/conceded, opponent break-point conversion, and physical/injury judgment.
+- Blank manual fields are not silently scored as zero.
+
+## v2.1 sync architecture
 
 v2.1 introduces one shared PlayerDB used by **Live, Model, and Analyzer**.
 

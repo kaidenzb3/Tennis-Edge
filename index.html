@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2.1</span></h1>
+      <h1>Tennis Edge <span class="v">v2.2</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -85,6 +85,24 @@
         <div class="data-row"><span>Player profiles</span><strong id="profileCount">0</strong></div>
         <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
         <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
+      </div>
+
+      <div class="section-head compact-head">
+        <div>
+          <h3>Automatic Match Board</h3>
+          <p>Upcoming/live WTA matches are modeled automatically after sync.</p>
+        </div>
+        <button id="refreshModelBoardBtn" class="small-btn" type="button">↻ Refresh</button>
+      </div>
+      <div id="modelBoard" class="match-list">
+        <div class="empty card">Sync historical data and load WTA matches to populate the model board.</div>
+      </div>
+
+      <div class="section-head compact-head">
+        <div>
+          <h3>Manual Match Lookup</h3>
+          <p>Use this only if you want to type a matchup yourself.</p>
+        </div>
       </div>
 
       <form id="prematchForm" class="card form-card">
@@ -170,24 +188,24 @@
           </label>
         </div>
 
-        <div class="subhead">Live stats — optional but recommended</div>
+        <div class="subhead">Live stats — red fields were NOT supplied by the free feed</div>
         <div class="grid-3">
           <label>1st serve pts won %
-            <input id="firstWon" type="number" value="65" min="0" max="100" />
+            <input id="firstWon" type="number" min="0" max="100" />
           </label>
           <label>2nd serve pts won %
-            <input id="secondWon" type="number" value="45" min="0" max="100" />
+            <input id="secondWon" type="number" min="0" max="100" />
           </label>
           <label>Break pts created
-            <input id="bpCreated" type="number" value="4" min="0" max="30" />
+            <input id="bpCreated" type="number" min="0" max="30" />
           </label>
         </div>
         <div class="grid-3">
           <label>Break pts conceded
-            <input id="bpConceded" type="number" value="3" min="0" max="30" />
+            <input id="bpConceded" type="number" min="0" max="30" />
           </label>
           <label>Opponent BP conversion %
-            <input id="oppBpConv" type="number" value="67" min="0" max="100" />
+            <input id="oppBpConv" type="number" min="0" max="100" />
           </label>
           <label>Physical status
             <select id="physical">
@@ -196,6 +214,10 @@
               <option value="bad">Injury concern</option>
             </select>
           </label>
+        </div>
+        <div id="autofillStatus" class="autofill-status">
+          <strong>Auto-fill status</strong>
+          <span>Open a live match from the Live tab to fill everything the free feed provides.</span>
         </div>
         <button class="primary-btn" type="submit">Grade live play</button>
       </form>
