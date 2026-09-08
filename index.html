@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2.2</span></h1>
+      <h1>Tennis Edge <span class="v">v2.3</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -81,7 +81,7 @@
       </div>
 
       <div class="card data-card">
-        <div class="data-row"><span>Historical source</span><strong>Jeff Sackmann / Tennis Abstract</strong></div>
+        <div class="data-row"><span>Historical source</span><strong>Public WTA 2021–2026 snapshot</strong></div>
         <div class="data-row"><span>Player profiles</span><strong id="profileCount">0</strong></div>
         <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
         <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
@@ -90,7 +90,7 @@
       <div class="section-head compact-head">
         <div>
           <h3>Automatic Match Board</h3>
-          <p>Upcoming/live WTA matches are modeled automatically after sync.</p>
+          <p>Only matches that have NOT started yet appear here.</p>
         </div>
         <button id="refreshModelBoardBtn" class="small-btn" type="button">↻ Refresh</button>
       </div>
@@ -279,6 +279,15 @@
       </div>
 
       <div class="card">
+        <h4>Source status</h4>
+        <div class="data-row"><span>Historical data</span><strong id="historySourceStatus">Not loaded</strong></div>
+        <div class="data-row"><span>Live API</span><strong id="liveSourceStatus">Not tested</strong></div>
+        <div class="data-row"><span>Players matched</span><strong id="matchedPlayerStatus">0</strong></div>
+        <div class="data-row"><span>Last source error</span><strong id="lastSourceError">None</strong></div>
+        <button id="forceSourceSyncBtn" class="ghost-btn" type="button">Force full source sync</button>
+      </div>
+
+      <div class="card">
         <h4>Notifications</h4>
         <p class="muted">Tennis Edge can show an alert while the app is open when a live match reaches a Set 2 watch condition.</p>
         <button id="notifyBtn" class="ghost-btn" type="button">Enable notifications</button>
@@ -286,7 +295,7 @@
 
       <div class="card info-card">
         <h4>Data & cost</h4>
-        <p>Live scores use the Live Tennis API free tier. Historical results and our derived Elo/form metrics use Jeff Sackmann's public WTA data under CC BY-NC-SA 4.0.</p>
+        <p>Live scores use the Live Tennis API free tier. Historical Elo/form calculations use a public 2021–2026 WTA results snapshot hosted on GitHub; Tennis Edge computes its own ratings locally.</p>
         <p>No paid backend, database, or app-store account is required for this version.</p>
       </div>
     </section>

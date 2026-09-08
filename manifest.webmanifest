@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#07111e",
   "theme_color": "#07111e",
-  "description": "Tennis Edge v2.2 \u2014 automatic WTA Elo/form sync and live score analyzer autofill.",
+  "description": "Tennis Edge v2.3 \u2014 separate pre-match/live analyzers with reliable WTA source sync.",
   "icons": [
     {
       "src": "icon-192.svg",

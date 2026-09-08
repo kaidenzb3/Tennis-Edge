@@ -1,6 +1,18 @@
-# Tennis Edge v2.2
+# Tennis Edge v2.3
 
 A mobile-first, installable WTA analysis PWA.
+
+## v2.3 fixes
+
+- Upcoming/not-started match → **Pre-Match Model**
+- Live match → **Live Analyzer**
+- Replaced the broken runtime Jeff Sackmann URL with a working public WTA 2021–2026 combined snapshot.
+- Player names and Elo/form profiles rebuild from the combined source.
+- Settings now has **Source status** and **Force full source sync**.
+- WTA API calls explicitly request singles.
+- API auth uses `X-API-Key`, with a browser token fallback.
+- Player-name extraction accepts more payload shapes.
+- Model board is upcoming-only.
 
 ## v2.2 fixes
 

@@ -1,7 +1,7 @@
 const $ = id => document.getElementById(id);
 
 const API_BASE = "https://api.livetennisapi.com/api/public/v1";
-const SACKMANN = "https://raw.githubusercontent.com/JeffSackmann/tennis_wta/master";
+const HISTORICAL_SOURCE = "https://raw.githubusercontent.com/36-SURE/2026/main/data/wta_matches_2021_2026.csv";
 const STORE = {
   get(k,d){ try { const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); } catch { return d; } },
   set(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
@@ -146,7 +146,7 @@ const PlayerDB = {
   }
 };
 
-function buildModelCache(){ PlayerDB.rebuild(history); renderHistoryStatus(); }
+function buildModelCache(){ PlayerDB.rebuild(history); renderHistoryStatus(); updateMatchedStatus(); }
 function findPlayer(name){ return PlayerDB.resolve(name); }
 
 function playerMetrics(name,surface="Hard"){
@@ -210,36 +210,42 @@ function prematchModel(a,b,surface){
 async function syncHistory(force=false){
   const btn=$("syncHistoryBtn");
   if(btn){ btn.textContent="Syncing…"; btn.disabled=true; }
+  setSourceStatus("history","loading");
 
   const last=STORE.get("te2-history-updated",0);
   if(!force && history.length && Date.now()-last < 12*60*60*1000){
     buildModelCache();
     refreshAllModelViews();
+    setSourceStatus("history","ok");
     if(btn){ btn.textContent="Up to date ✓"; btn.disabled=false; setTimeout(()=>btn.textContent="Sync data",1200); }
     return;
   }
 
   try{
-    let all=[];
-    // Five seasons gives far more stable Elo than only 2-3 years.
-    for(const y of [yyyy()-4,yyyy()-3,yyyy()-2,yyyy()-1,yyyy()]){
-      const res=await fetch(`${SACKMANN}/wta_matches_${y}.csv?ts=${Date.now()}`,{cache:"no-store"});
-      if(!res.ok) continue;
-      all=all.concat(parseCSV(await res.text()));
-    }
-    if(all.length<500) throw new Error("Historical feed returned too little data.");
+    const res=await fetch(`${HISTORICAL_SOURCE}?ts=${Date.now()}`,{cache:"no-store"});
+    if(!res.ok) throw new Error(`Historical source HTTP ${res.status}`);
+    const rows=parseCSV(await res.text());
+    if(rows.length<5000) throw new Error(`Historical source returned only ${rows.length} rows`);
 
-    history=all.filter(r=>r.winner_name&&r.loser_name&&r.tourney_date);
+    history=rows.filter(r=>r.winner_name&&r.loser_name&&r.tourney_date);
+    if(history.length<5000) throw new Error("Historical source parsed, but too few usable WTA matches remained.");
+
     STORE.set("te2-history",history);
     STORE.set("te2-history-updated",Date.now());
 
     buildModelCache();
     refreshAllModelViews();
+    setSourceStatus("history","ok");
+    clearSourceError();
     if(btn){ btn.textContent="Synced ✓"; setTimeout(()=>btn.textContent="Sync data",1500); }
   }catch(err){
-    if(btn) btn.textContent="Sync failed";
     console.error(err);
-    alert("Historical/Elo sync failed. Check internet, then tap Sync data again.");
+    setSourceStatus("history","bad");
+    setSourceError(err.message||String(err));
+    if(btn) btn.textContent="Sync failed";
+    if(!history.length){
+      $("modelBoard").innerHTML='<div class="empty card missing-list">Historical data could not load. Open Settings → Source status, then Force full source sync.</div>';
+    }
   }finally{
     if(btn) btn.disabled=false;
   }
@@ -304,13 +310,28 @@ function scoreObj(m){
     timestamp:m?.timestamp ?? nested.timestamp ?? null
   };
 }
-function pName(m,n){
-  return m?.players?.[`p${n}`]?.name
-      || m?.[`p${n}`]?.name
-      || m?.[`player${n}`]?.name
-      || m?.[`player_${n}`]?.name
+function pObj(m,n){
+  return m?.players?.[`p${n}`]
+      || m?.players?.[n-1]
       || m?.[`p${n}`]
+      || m?.[`player${n}`]
+      || m?.[`player_${n}`]
+      || null;
+}
+function pName(m,n){
+  const p=pObj(m,n);
+  if(typeof p==="string") return p;
+  return p?.name
+      || p?.full_name
+      || p?.player_name
+      || m?.[`p${n}_name`]
+      || m?.[`player${n}_name`]
+      || m?.[`player_${n}_name`]
       || `Player ${n}`;
+}
+function pId(m,n){
+  const p=pObj(m,n);
+  return p?.id || p?.player_id || m?.[`p${n}_id`] || m?.[`player${n}_id`] || null;
 }
 function mSurface(m){
   let s=m?.surface || m?.tournament?.surface || "Hard";
@@ -350,9 +371,15 @@ function getApiKey(){ return STORE.get("te2-api-key",""); }
 async function apiFetch(path){
   const key=getApiKey();
   if(!key) throw new Error("No API key saved.");
-  const join=path.includes("?")?"&":"?";
-  // token query works directly in browsers and avoids preflight/CORS issues on some phones.
-  const res=await fetch(`${API_BASE}${path}${join}token=${encodeURIComponent(key)}`,{cache:"no-store"});
+
+  let res;
+  try{
+    res=await fetch(API_BASE+path,{headers:{"X-API-Key":key},cache:"no-store"});
+  }catch(_err){
+    const join=path.includes("?")?"&":"?";
+    res=await fetch(`${API_BASE}${path}${join}token=${encodeURIComponent(key)}`,{cache:"no-store"});
+  }
+
   if(res.status===401) throw new Error("API key was rejected.");
   if(res.status===429) throw new Error("Free daily request limit reached.");
   if(res.status===403) throw new Error("This endpoint is not on the free tier.");
@@ -372,6 +399,26 @@ function setApiConnected(ok){
   $("apiDot").classList.toggle("off",!ok);
   $("apiBanner").style.display=getApiKey()?"none":"flex";
 }
+
+function setSourceStatus(which,state){
+  const el=which==="history"?$("historySourceStatus"):$("liveSourceStatus");
+  if(!el)return;
+  el.classList.remove("source-ok","source-bad");
+  if(state==="ok"){el.textContent="Connected ✓";el.classList.add("source-ok")}
+  else if(state==="bad"){el.textContent="Failed";el.classList.add("source-bad")}
+  else if(state==="loading"){el.textContent="Loading…"}
+  else el.textContent="Not loaded";
+}
+function setSourceError(msg){
+  if($("lastSourceError")) $("lastSourceError").textContent=msg||"Unknown error";
+}
+function clearSourceError(){
+  if($("lastSourceError")) $("lastSourceError").textContent="None";
+}
+function updateMatchedStatus(){
+  if($("matchedPlayerStatus")) $("matchedPlayerStatus").textContent=PlayerDB.profiles.size.toLocaleString();
+}
+
 
 // ---------- Pre-match board ----------
 function renderPrematch(m,surface="Hard"){
@@ -429,19 +476,17 @@ function modelMatchCard(m){
       <div class="edge-chip"><span>Surface L10</span><strong>${pm.fav.surface10}-${Math.max(0,pm.fav.splayed-pm.fav.surface10)}</strong></div>
       <div class="edge-chip"><span>Lean</span><strong>${esc(pm.lean)}</strong></div>
     </div>
+    <span class="route-tag pre">PRE-MATCH → MODEL</span>
     <div class="match-actions">
-      <button class="small-btn model-open" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Full model</button>
-      <button class="small-btn analyze-match" data-id="${esc(m.id||"")}" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Analyze</button>
+      <button class="small-btn model-open" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Open pre-match analyzer</button>
     </div>
   </div>`;
 }
 function refreshModelBoard(){
-  const live=STORE.get("te2-live-cache",null)?.data||[];
   const up=STORE.get("te2-upcoming-cache",null)?.data||[];
-  const merged=[...live,...up];
-  $("modelBoard").innerHTML=merged.length
-    ? merged.map(modelMatchCard).join("")
-    : '<div class="empty card">Load Live/Upcoming matches first.</div>';
+  $("modelBoard").innerHTML=up.length
+    ? up.map(modelMatchCard).join("")
+    : '<div class="empty card">No upcoming WTA singles matches loaded yet.</div>';
   bindMatchButtons();
 }
 $("refreshModelBoardBtn").onclick=async()=>{
@@ -496,8 +541,11 @@ function liveMatchCard(m,live=true){
     </div>
     ${live?`<div class="scoreline">${esc(scoreText(m)||"Live")}</div><span class="live-set-chip">Set ${currentSetIndex(m)+1}</span>`:""}
     ${metrics}
+    ${live?'<span class="route-tag live">LIVE → LIVE ANALYZER</span>':'<span class="route-tag pre">UPCOMING → PRE-MATCH MODEL</span>'}
     <div class="match-actions">
-      <button class="small-btn analyze-match" data-id="${esc(m.id||"")}" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Open analyzer</button>
+      ${live
+        ? `<button class="small-btn analyze-match" data-id="${esc(m.id||"")}" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Open live analyzer</button>`
+        : `<button class="small-btn model-open" data-a="${esc(a)}" data-b="${esc(b)}" data-s="${esc(surface)}">Open pre-match analyzer</button>`}
     </div>
   </div>`;
 }
@@ -611,18 +659,18 @@ function bindMatchButtons(){
 async function refreshLive(){
   $("refreshLiveBtn").textContent="Loading…"; $("refreshLiveBtn").disabled=true;
   try{
-    const j=await apiFetch("/matches?status=live&tour=wta&limit=100");
+    const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-live-cache",{time:Date.now(),data});
     $("liveMatches").innerHTML=data.length?data.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No WTA matches are live right now.</div>';
     $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
-    setApiConnected(true);
+    setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     bindMatchButtons();
     refreshModelBoard();
     maybeNotify(data);
   }catch(err){
     $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
-    setApiConnected(false);
+    setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
     $("refreshLiveBtn").textContent="↻ Refresh"; $("refreshLiveBtn").disabled=false;
   }
@@ -632,16 +680,16 @@ $("refreshLiveBtn").onclick=refreshLive;
 async function refreshUpcoming(){
   $("refreshUpcomingBtn").textContent="Loading…"; $("refreshUpcomingBtn").disabled=true;
   try{
-    const j=await apiFetch("/matches?status=upcoming&tour=wta&limit=100");
+    const j=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-upcoming-cache",{time:Date.now(),data});
     $("upcomingMatches").innerHTML=data.length?data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming WTA matches returned.</div>';
-    setApiConnected(true);
+    setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     bindMatchButtons();
     refreshModelBoard();
   }catch(err){
     $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
-    setApiConnected(false);
+    setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
     $("refreshUpcomingBtn").textContent="Load"; $("refreshUpcomingBtn").disabled=false;
   }
@@ -784,7 +832,7 @@ $("testApiBtn").onclick=async()=>{
   STORE.set("te2-api-key",$("apiKey").value.trim());
   $("apiTestMsg").textContent="Testing…";
   try{
-    await apiFetch("/matches?status=live&tour=wta&limit=1");
+    await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=1");
     $("apiTestMsg").textContent="Connected ✓"; setApiConnected(true);
   }catch(err){
     $("apiTestMsg").textContent=err.message; setApiConnected(false);
@@ -848,6 +896,24 @@ function loadCaches(){
   bindMatchButtons();
 }
 
+
+$("forceSourceSyncBtn").onclick=async()=>{
+  $("forceSourceSyncBtn").textContent="Syncing everything…";
+  try{
+    await syncHistory(true);
+    if(getApiKey()){
+      await refreshLive();
+      await refreshUpcoming();
+    }
+    refreshAllModelViews();
+    $("forceSourceSyncBtn").textContent="Full sync complete ✓";
+    setTimeout(()=>$("forceSourceSyncBtn").textContent="Force full source sync",1600);
+  }catch(err){
+    setSourceError(err.message||String(err));
+    $("forceSourceSyncBtn").textContent="Sync failed";
+  }
+};
+
 // ---------- Install ----------
 let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
@@ -856,6 +922,8 @@ if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.se
 
 // ---------- Start ----------
 setupSettings();
+if(history.length) setSourceStatus("history","ok");
+if(getApiKey()) setSourceStatus("live","loading");
 buildModelCache();
 renderResults();
 loadCaches();
