@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2.5</span></h1>
+      <h1>Tennis Edge <span class="v">v2.6</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -45,6 +45,15 @@
           <span>Add a Live Tennis API free key in Settings. The key stays on your device.</span>
         </div>
         <button class="small-btn" data-view-jump="settings">Set up</button>
+      </div>
+
+      <div class="card tournament-card">
+        <label>Tournament
+          <select id="tournamentFilter">
+            <option value="all">All tournaments</option>
+          </select>
+        </label>
+        <p class="muted small">Filters Live, Upcoming, and the Pre-Match Model together.</p>
       </div>
 
       <div class="section-head">
@@ -85,6 +94,14 @@
         <div class="data-row"><span>Player profiles</span><strong id="profileCount">0</strong></div>
         <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
         <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
+      </div>
+
+      <div class="card tournament-card">
+        <label>Tournament
+          <select id="modelTournamentFilter">
+            <option value="all">All tournaments</option>
+          </select>
+        </label>
       </div>
 
       <div class="section-head compact-head">

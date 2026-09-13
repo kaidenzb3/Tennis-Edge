@@ -25,10 +25,13 @@ function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function logistic(diff){ return 1/(1+Math.pow(10,-diff/400)); }
 function nowLabel(){ return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }
 function yyyy(){ return new Date().getFullYear(); }
-function matchStartRaw(m){return m?.start_time||m?.start_at||m?.scheduled_at||m?.scheduled||m?.date_time||m?.datetime||m?.match_time||m?.time||m?.starts_at||m?.start_date||null;}
+function matchStartRaw(m){return m?.scheduled_time||m?._fixture_start_time||m?.start_time||m?.start_at||m?.scheduled_at||m?.scheduled||m?.date_time||m?.datetime||m?.match_time||m?.time||m?.starts_at||m?.start_date||null;}
 function matchStartDate(m){const raw=matchStartRaw(m);if(!raw)return null;if(typeof raw==="number"){const d=new Date(raw<1e12?raw*1000:raw);return isNaN(d)?null:d;}const d=new Date(raw);return isNaN(d)?null:d;}
-function formatMatchTime(m){const d=matchStartDate(m);return d?d.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"Start time unavailable";}
+function matchEventDateRaw(m){return m?._fixture_event_date||m?.event_date||null;}
+function matchEventDate(m){const raw=matchEventDateRaw(m);if(!raw)return null;if(/^\d{4}-\d{2}-\d{2}$/.test(String(raw))){const [y,mo,d]=String(raw).split("-").map(Number);return new Date(y,mo-1,d,12,0,0);}const dt=new Date(raw);return isNaN(dt)?null:dt;}
+function formatMatchTime(m){const d=matchStartDate(m);if(d)return d.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});const ed=matchEventDate(m);return ed?`${ed.toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})} · Time TBD`:"Schedule unavailable";}
 function countdownText(m){const d=matchStartDate(m);if(!d)return "";const mins=Math.round((d-Date.now())/60000);if(mins<0)return "Started";if(mins<60)return `in ${mins}m`;if(mins<1440)return `in ${Math.floor(mins/60)}h ${mins%60}m`;return `in ${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;}
+function timeSourceText(m){if(m?.scheduled_time)return "scheduled time";if(m?._fixture_start_time)return "order of play";if(matchEventDateRaw(m))return "date known · exact time not assigned";return "";}
 function canonicalMatchKey(m){if(m?.id!=null&&String(m.id)!=="")return `api:${m.id}`;return `fallback:${norm(tournamentName(m))}|${norm(pName(m,1))}|${norm(pName(m,2))}|${matchStartRaw(m)||""}`;}
 function pregameStore(){return STORE.get("te2-pregame-log",[])}
 function savePregameStore(a){STORE.set("te2-pregame-log",a)}
@@ -451,6 +454,57 @@ function updateMatchedStatus(){
 }
 
 
+
+// ---------- Fixture enrichment + tournament filtering ----------
+function fixturePName(f,n){return f?.[`player${n}_name`]||f?.[`player_${n}_name`]||f?.players?.[`p${n}`]?.name||f?.players?.[n-1]?.name||"";}
+function fixtureMatchesMatch(f,m){
+  if(f?.id!=null&&m?.id!=null&&String(f.id)===String(m.id))return true;
+  const fa=norm(fixturePName(f,1)),fb=norm(fixturePName(f,2)),ma=norm(pName(m,1)),mb=norm(pName(m,2));
+  return !!fa&&!!fb&&((fa===ma&&fb===mb)||(fa===mb&&fb===ma));
+}
+function enrichUpcomingWithFixtures(matches,fixtures){
+  return matches.map(m=>{
+    const f=fixtures.find(x=>fixtureMatchesMatch(x,m));
+    if(!f)return m;
+    return {...m,_fixture_start_time:f.start_time||null,_fixture_event_date:f.event_date||null,tournament:m.tournament||f.tournament||null,round:m.round||f.round||null,surface:m.surface||f.surface||null};
+  });
+}
+function tournamentValue(m){return tournamentName(m)||"Unknown";}
+function currentTournamentFilter(){return STORE.get("te2-tournament-filter","all");}
+function uniqueTournaments(){
+  const all=[...(STORE.get("te2-live-cache",null)?.data||[]),...(STORE.get("te2-upcoming-cache",null)?.data||[])];
+  return [...new Set(all.map(tournamentValue).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+}
+function populateTournamentFilters(){
+  const ts=uniqueTournaments(),saved=currentTournamentFilter(),value=ts.includes(saved)?saved:"all";
+  for(const id of ["tournamentFilter","modelTournamentFilter"]){
+    const el=$(id);if(!el)continue;
+    el.innerHTML='<option value="all">All tournaments</option>'+ts.map(t=>`<option value="${esc(t)}">${esc(t)}</option>`).join("");
+    el.value=value;
+  }
+  if(value!==saved)STORE.set("te2-tournament-filter",value);
+}
+function applyTournamentFilter(matches){
+  const f=currentTournamentFilter();return f==="all"?matches:matches.filter(m=>tournamentValue(m)===f);
+}
+function setTournamentFilter(v){
+  STORE.set("te2-tournament-filter",v);
+  if($("tournamentFilter"))$("tournamentFilter").value=v;
+  if($("modelTournamentFilter"))$("modelTournamentFilter").value=v;
+  renderTournamentFilteredViews();
+}
+function renderModelBoardFiltered(){
+  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
+  $("modelBoard").innerHTML=up.length?up.map(modelMatchCard).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
+}
+function renderTournamentFilteredViews(){
+  const live=applyTournamentFilter(STORE.get("te2-live-cache",null)?.data||[]);
+  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
+  $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No live matches in this tournament.</div>';
+  $("upcomingMatches").innerHTML=up.length?up.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
+  renderModelBoardFiltered();bindMatchButtons();
+}
+
 // ---------- Pre-game lean logging ----------
 function logPregameModel(m){
   const a=pName(m,1),b=pName(m,2),surface=mSurface(m),pm=prematchModel(a,b,surface);
@@ -500,7 +554,7 @@ function modelMatchCard(m){
   if(pm.error){
     return `<div class="match-card">
       <div class="match-title">${esc(a)} vs ${esc(b)}</div>
-      <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)}</div><div class="start-time"><span class="date">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span></div>
+      <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)}</div><div class="start-time"><span class="date ${matchStartDate(m)?"":"time-tbd"}">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span><span class="time-source">${esc(timeSourceText(m))}</span></div>
       <span class="badge pass">NO ELO MATCH</span>
       <div class="model-source missing-list">Player names could not be matched to synced history.</div>
     </div>`;
@@ -528,13 +582,7 @@ function modelMatchCard(m){
     </div>
   </div>`;
 }
-function refreshModelBoard(){
-  const up=STORE.get("te2-upcoming-cache",null)?.data||[];
-  $("modelBoard").innerHTML=up.length
-    ? up.map(modelMatchCard).join("")
-    : '<div class="empty card">No upcoming WTA singles matches loaded yet.</div>';
-  bindMatchButtons();
-}
+function refreshModelBoard(){populateTournamentFilters();renderModelBoardFiltered();bindMatchButtons();}
 $("refreshModelBoardBtn").onclick=async()=>{
   if(!history.length) await syncHistory(true);
   await refreshUpcoming();
@@ -581,7 +629,7 @@ function liveMatchCard(m,live=true){
     <div class="match-top">
       <div>
         <div class="match-title">${aDisp} vs ${bDisp}</div>
-        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}</div>${!live?`<div class="start-time"><span class="date">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span></div>`:""}
+        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}</div>${!live?`<div class="start-time"><span class="date ${matchStartDate(m)?"":"time-tbd"}">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span><span class="time-source">${esc(timeSourceText(m))}</span></div>`:""}
       </div>
       <span class="badge ${tier}">${label}</span>
     </div>
@@ -708,11 +756,9 @@ async function refreshLive(){
     const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-live-cache",{time:Date.now(),data});
-    $("liveMatches").innerHTML=data.length?data.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No WTA matches are live right now.</div>';
     $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
+    populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
-    bindMatchButtons();
-    refreshModelBoard();
     maybeNotify(data);
   }catch(err){
     $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
@@ -726,17 +772,18 @@ $("refreshLiveBtn").onclick=refreshLive;
 async function refreshUpcoming(){
   $("refreshUpcomingBtn").textContent="Loading…"; $("refreshUpcomingBtn").disabled=true;
   try{
-    const j=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
-    const data=unwrapMatches(j);
+    const [mj,fj]=await Promise.all([
+      apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100"),
+      apiFetch("/fixtures?tour=wta&draw=singles&limit=100")
+    ]);
+    const data=enrichUpcomingWithFixtures(unwrapMatches(mj),unwrapMatches(fj));
     STORE.set("te2-upcoming-cache",{time:Date.now(),data});
     logUpcomingBoard(data);
-    $("upcomingMatches").innerHTML=data.length?data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming WTA matches returned.</div>';
+    populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
-    bindMatchButtons();
-    refreshModelBoard();
   }catch(err){
     $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
-    setApiConnected(false); setSourceStatus("live","bad"); setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
+    setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
     $("refreshUpcomingBtn").textContent="Load"; $("refreshUpcomingBtn").disabled=false;
   }
@@ -937,13 +984,9 @@ function refreshAllModelViews(){
 }
 function loadCaches(){
   const live=STORE.get("te2-live-cache",null),up=STORE.get("te2-upcoming-cache",null);
-  if(live?.data){
-    $("liveMatches").innerHTML=live.data.length?live.data.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No live matches in cache.</div>';
-    $("liveUpdated").textContent=`Cached ${new Date(live.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`;
-  }
-  if(up?.data){logUpcomingBoard(up.data);$("upcomingMatches").innerHTML=up.data.length?up.data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in cache.</div>';}
-  refreshModelBoard();
-  bindMatchButtons();
+  if(live?.data)$("liveUpdated").textContent=`Cached ${new Date(live.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`;
+  if(up?.data)logUpcomingBoard(up.data);
+  populateTournamentFilters();renderTournamentFilteredViews();
 }
 
 
@@ -963,6 +1006,9 @@ $("forceSourceSyncBtn").onclick=async()=>{
     $("forceSourceSyncBtn").textContent="Sync failed";
   }
 };
+
+$("tournamentFilter").onchange=e=>setTournamentFilter(e.target.value);
+$("modelTournamentFilter").onchange=e=>setTournamentFilter(e.target.value);
 
 // ---------- Install ----------
 let deferredPrompt;
@@ -1010,4 +1056,4 @@ if(getApiKey()){
   setTimeout(refreshLive,1000);
   setTimeout(refreshUpcoming,2200);
 }
-setInterval(()=>{const live=STORE.get("te2-live-cache",null)?.data||[],up=STORE.get("te2-upcoming-cache",null)?.data||[];if(up.length)$("upcomingMatches").innerHTML=up.map(m=>liveMatchCard(m,false)).join("");if(live.length)$("liveMatches").innerHTML=live.map(m=>liveMatchCard(m,true)).join("");refreshModelBoard();bindMatchButtons();},60000);
+setInterval(()=>{renderTournamentFilteredViews();},60000);

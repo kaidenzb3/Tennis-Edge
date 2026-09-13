@@ -1,6 +1,14 @@
-# Tennis Edge v2.5
+# Tennis Edge v2.6
 
 A mobile-first, installable WTA analysis PWA.
+
+## v2.6 start times + tournament selector
+
+- Fixed start times by reading the API's actual `scheduled_time` match field.
+- Upcoming refresh now also uses the FREE `/fixtures` endpoint and merges `start_time` / `event_date`.
+- Exact UTC start times display automatically in the device's local timezone.
+- Date-only fixtures show **Time TBD** until the order of play assigns a court time.
+- Added a synchronized Tournament dropdown across Live, Upcoming, and Pre-Match Model.
 
 ## v2.5 schedule + pre-game tracking
 

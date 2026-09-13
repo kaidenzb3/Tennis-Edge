@@ -5,7 +5,7 @@
   "display": "standalone",
   "background_color": "#07111e",
   "theme_color": "#07111e",
-  "description": "Tennis Edge v2.5 \u2014 schedules, frozen pre-game lean log, hit-rate tracking and live analyzer.",
+  "description": "Tennis Edge v2.6 \u2014 fixture start times, tournament filtering, pre-game tracking and live analysis.",
   "icons": [
     {
       "src": "icon-192.svg",
