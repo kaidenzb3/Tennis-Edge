@@ -25,6 +25,13 @@ function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function logistic(diff){ return 1/(1+Math.pow(10,-diff/400)); }
 function nowLabel(){ return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }
 function yyyy(){ return new Date().getFullYear(); }
+function matchStartRaw(m){return m?.start_time||m?.start_at||m?.scheduled_at||m?.scheduled||m?.date_time||m?.datetime||m?.match_time||m?.time||m?.starts_at||m?.start_date||null;}
+function matchStartDate(m){const raw=matchStartRaw(m);if(!raw)return null;if(typeof raw==="number"){const d=new Date(raw<1e12?raw*1000:raw);return isNaN(d)?null:d;}const d=new Date(raw);return isNaN(d)?null:d;}
+function formatMatchTime(m){const d=matchStartDate(m);return d?d.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"Start time unavailable";}
+function countdownText(m){const d=matchStartDate(m);if(!d)return "";const mins=Math.round((d-Date.now())/60000);if(mins<0)return "Started";if(mins<60)return `in ${mins}m`;if(mins<1440)return `in ${Math.floor(mins/60)}h ${mins%60}m`;return `in ${Math.floor(mins/1440)}d ${Math.floor((mins%1440)/60)}h`;}
+function canonicalMatchKey(m){if(m?.id!=null&&String(m.id)!=="")return `api:${m.id}`;return `fallback:${norm(tournamentName(m))}|${norm(pName(m,1))}|${norm(pName(m,2))}|${matchStartRaw(m)||""}`;}
+function pregameStore(){return STORE.get("te2-pregame-log",[])}
+function savePregameStore(a){STORE.set("te2-pregame-log",a)}
 
 function parseCSV(text){
   const rows=[]; let row=[],cell="",quoted=false;
@@ -444,6 +451,21 @@ function updateMatchedStatus(){
 }
 
 
+// ---------- Pre-game lean logging ----------
+function logPregameModel(m){
+  const a=pName(m,1),b=pName(m,2),surface=mSurface(m),pm=prematchModel(a,b,surface);
+  if(pm.error||!pm.fav||pm.lean==="PASS")return;
+  const key=canonicalMatchKey(m),log=pregameStore(),existing=log.find(x=>x.key===key);
+  const row={key,matchId:m?.id??null,tournament:tournamentName(m),round:m?.round||"",surface,playerA:a,playerB:b,scheduled:matchStartDate(m)?.toISOString()||matchStartRaw(m)||null,loggedAt:existing?.loggedAt||Date.now(),favourite:pm.fav.name,opponent:pm.opp.name,lean:pm.lean,grade:pm.grade,winProb:Math.round(pm.winP*100),p20:Math.round(pm.p20*100),p21:Math.round(pm.p21*100),eloEdge:pm.eloEdge,surfaceEdge:pm.surfaceEdge,tier:pm.grade>=settings.strong?"STRONG":pm.grade>=settings.good?"GOOD":"WATCH",status:existing?.status||"pending",winner:existing?.winner||null,exactScore:existing?.exactScore||null,winnerHit:existing?.winnerHit??null,exactHit:existing?.exactHit??null,gradedAt:existing?.gradedAt||null};
+  if(existing){if(!existing.scheduled&&row.scheduled)existing.scheduled=row.scheduled;}else log.unshift(row);
+  savePregameStore(log);
+}
+function logUpcomingBoard(matches){for(const m of matches)logPregameModel(m);renderPregameLog();}
+function pregameStats(){const log=pregameStore(),graded=log.filter(x=>x.status==="win"||x.status==="loss"),winner=graded.filter(x=>x.winnerHit!==null),exact=graded.filter(x=>x.exactHit!==null),strong=winner.filter(x=>x.tier==="STRONG"),pct2=(arr,k)=>arr.length?Math.round(arr.filter(x=>x[k]===true).length/arr.length*100):null,byLean=l=>exact.filter(x=>x.lean===l);return{logged:log.length,winnerPct:pct2(winner,"winnerHit"),exactPct:pct2(exact,"exactHit"),strongPct:pct2(strong,"winnerHit"),p20Pct:pct2(byLean("2–0"),"exactHit"),p21Pct:pct2(byLean("2–1"),"exactHit")};}
+function setPct(id,v){$(id).textContent=v==null?"—":`${v}%`;}
+function manualGradePregame(index,result){const log=pregameStore(),row=log[index];if(!row)return;if(result==="void"){row.status="void";row.winnerHit=null;row.exactHit=null}else if(result==="winner"){row.status="win";row.winnerHit=true;row.exactHit=row.lean==="ML"?true:row.exactHit}else if(result==="loser"){row.status="loss";row.winnerHit=false;row.exactHit=false}else if(result==="exact"){row.status="win";row.winnerHit=true;row.exactHit=true}row.gradedAt=Date.now();savePregameStore(log);renderPregameLog();}
+function renderPregameLog(){const s=pregameStats();$("pregameLogged").textContent=s.logged;setPct("pregameWinnerPct",s.winnerPct);setPct("pregameExactPct",s.exactPct);setPct("pregameStrongPct",s.strongPct);setPct("pregame20Pct",s.p20Pct);setPct("pregame21Pct",s.p21Pct);let log=pregameStore().map((x,i)=>({...x,_index:i}));const f=$("pregameFilter")?.value||"all",sort=$("pregameSort")?.value||"newest";if(f==="pending")log=log.filter(x=>x.status==="pending");if(f==="graded")log=log.filter(x=>x.status==="win"||x.status==="loss");if(f==="strong")log=log.filter(x=>x.tier==="STRONG");const t=x=>x.scheduled?new Date(x.scheduled).getTime():x.loggedAt;if(sort==="newest")log.sort((a,b)=>t(b)-t(a));if(sort==="oldest")log.sort((a,b)=>t(a)-t(b));if(sort==="grade")log.sort((a,b)=>b.grade-a.grade);const el=$("pregameLogList");if(!log.length){el.innerHTML='<div class="empty card">No pre-game leans logged yet. Load upcoming matches.</div>';return;}el.innerHTML=log.map(x=>{const when=x.scheduled?new Date(x.scheduled).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"Time unavailable",sc=x.status==="pending"?"pending":x.status==="win"?"win":x.status==="loss"?"loss":"void";return `<div class="match-card pregame-card"><div class="match-top"><div><div class="match-title">${esc(x.playerA)} vs ${esc(x.playerB)}</div><div class="match-meta">${esc(x.tournament)} · ${esc(x.surface)} · ${esc(when)}</div></div><span class="log-status ${sc}">${esc(x.status.toUpperCase())}</span></div><div class="edge-grid"><div class="edge-chip"><span>Favourite</span><strong>${esc(x.favourite)}</strong></div><div class="edge-chip"><span>Lean</span><strong>${esc(x.lean)}</strong></div><div class="edge-chip"><span>Grade</span><strong>${x.grade}</strong></div></div><div class="mini-probs"><div><span>Win</span><strong>${x.winProb}%</strong></div><div><span>2–0</span><strong>${x.p20}%</strong></div><div><span>2–1</span><strong>${x.p21}%</strong></div></div>${x.status==="pending"?`<div class="outcome-row"><button class="small-btn pregame-grade" data-i="${x._index}" data-r="exact">Exact lean hit</button><button class="small-btn pregame-grade" data-i="${x._index}" data-r="winner">Favourite won</button><button class="small-btn danger pregame-grade" data-i="${x._index}" data-r="loser">Favourite lost</button><button class="small-btn pregame-grade" data-i="${x._index}" data-r="void">Void</button></div>`:""}</div>`}).join("");document.querySelectorAll(".pregame-grade").forEach(b=>b.onclick=()=>manualGradePregame(Number(b.dataset.i),b.dataset.r));}
+
 // ---------- Pre-match board ----------
 function renderPrematch(m,surface="Hard"){
   if(m.error) return `<div class="result-card"><div class="result-title">No model result</div><p class="missing-list">${esc(m.error)}</p></div>`;
@@ -478,7 +500,7 @@ function modelMatchCard(m){
   if(pm.error){
     return `<div class="match-card">
       <div class="match-title">${esc(a)} vs ${esc(b)}</div>
-      <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)}</div>
+      <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)}</div><div class="start-time"><span class="date">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span></div>
       <span class="badge pass">NO ELO MATCH</span>
       <div class="model-source missing-list">Player names could not be matched to synced history.</div>
     </div>`;
@@ -559,7 +581,7 @@ function liveMatchCard(m,live=true){
     <div class="match-top">
       <div>
         <div class="match-title">${aDisp} vs ${bDisp}</div>
-        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}</div>
+        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}</div>${!live?`<div class="start-time"><span class="date">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span></div>`:""}
       </div>
       <span class="badge ${tier}">${label}</span>
     </div>
@@ -707,6 +729,7 @@ async function refreshUpcoming(){
     const j=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-upcoming-cache",{time:Date.now(),data});
+    logUpcomingBoard(data);
     $("upcomingMatches").innerHTML=data.length?data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming WTA matches returned.</div>';
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     bindMatchButtons();
@@ -731,6 +754,9 @@ function maybeNotify(matches){
   }
   STORE.set("te2-notified",[...notified].slice(-100));
 }
+
+async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
+$("refreshPregameResultsBtn").onclick=refreshPregameResults;$("pregameFilter").onchange=renderPregameLog;$("pregameSort").onchange=renderPregameLog;
 
 // ---------- Live grade ----------
 function valNum(id){
@@ -915,7 +941,7 @@ function loadCaches(){
     $("liveMatches").innerHTML=live.data.length?live.data.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No live matches in cache.</div>';
     $("liveUpdated").textContent=`Cached ${new Date(live.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`;
   }
-  if(up?.data) $("upcomingMatches").innerHTML=up.data.length?up.data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in cache.</div>';
+  if(up?.data){logUpcomingBoard(up.data);$("upcomingMatches").innerHTML=up.data.length?up.data.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in cache.</div>';}
   refreshModelBoard();
   bindMatchButtons();
 }
@@ -971,6 +997,7 @@ if(history.length) setSourceStatus("history","ok");
 if(getApiKey()) setSourceStatus("live","loading");
 buildModelCache();
 renderResults();
+renderPregameLog();
 loadCaches();
 configureTimer();
 updateAnalyzerProfile(false);
@@ -983,3 +1010,4 @@ if(getApiKey()){
   setTimeout(refreshLive,1000);
   setTimeout(refreshUpcoming,2200);
 }
+setInterval(()=>{const live=STORE.get("te2-live-cache",null)?.data||[],up=STORE.get("te2-upcoming-cache",null)?.data||[];if(up.length)$("upcomingMatches").innerHTML=up.map(m=>liveMatchCard(m,false)).join("");if(live.length)$("liveMatches").innerHTML=live.map(m=>liveMatchCard(m,true)).join("");refreshModelBoard();bindMatchButtons();},60000);

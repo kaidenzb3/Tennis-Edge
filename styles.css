@@ -49,3 +49,5 @@ input,select{width:100%;background:#091424;color:var(--text);border:1px solid va
 .route-tag.live{background:#153b27;color:#7ef1a4}
 .source-ok{color:#72e99d!important}
 .source-bad{color:#ff8c98!important}
+
+.start-time{margin-top:7px;font-size:12px;font-weight:850;color:#d7e4f6}.start-time .date{color:#8fc4ff}.start-time .countdown{color:#75e79e;margin-left:6px}.pregame-card{position:relative}.pregame-card .outcome-row{display:flex;gap:7px;flex-wrap:wrap;margin-top:9px}.log-status{display:inline-flex;align-items:center;padding:5px 8px;border-radius:999px;font-size:9px;font-weight:900}.log-status.pending{background:#47380f;color:#f8d267}.log-status.win{background:#163d28;color:#79efa4}.log-status.loss{background:#481f29;color:#ff96a1}.log-status.void{background:#243147;color:#bac7d8}.filter-card{padding-bottom:7px}.mini-probs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:8px}.mini-probs div{background:#091424;border-radius:9px;padding:7px;text-align:center}.mini-probs span{display:block;font-size:8px;color:var(--muted);text-transform:uppercase}.mini-probs strong{font-size:12px}

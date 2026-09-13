@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2.4</span></h1>
+      <h1>Tennis Edge <span class="v">v2.5</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -227,12 +227,52 @@
     <section id="view-results" class="view">
       <div class="section-head">
         <div>
-          <h3>Results</h3>
-          <p>Track the model instead of guessing.</p>
+          <h3>Pre-Game Lean Log</h3>
+          <p>Every modeled upcoming match is saved automatically.</p>
         </div>
-        <button id="clearResultsBtn" class="small-btn danger">Clear</button>
+        <button id="refreshPregameResultsBtn" class="small-btn">↻ Grade</button>
       </div>
 
+      <div class="stats-grid">
+        <div class="stat card"><span>Logged</span><strong id="pregameLogged">0</strong></div>
+        <div class="stat card"><span>Winner hit %</span><strong id="pregameWinnerPct">—</strong></div>
+        <div class="stat card"><span>Exact lean %</span><strong id="pregameExactPct">—</strong></div>
+      </div>
+      <div class="stats-grid">
+        <div class="stat card"><span>Strong winner %</span><strong id="pregameStrongPct">—</strong></div>
+        <div class="stat card"><span>2–0 hit %</span><strong id="pregame20Pct">—</strong></div>
+        <div class="stat card"><span>2–1 hit %</span><strong id="pregame21Pct">—</strong></div>
+      </div>
+
+      <div class="card filter-card">
+        <div class="grid-2">
+          <label>Show
+            <select id="pregameFilter">
+              <option value="all">All pre-game leans</option>
+              <option value="pending">Pending</option>
+              <option value="graded">Graded</option>
+              <option value="strong">Strong only</option>
+            </select>
+          </label>
+          <label>Sort
+            <select id="pregameSort">
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="grade">Highest grade</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <div id="pregameLogList" class="match-list"></div>
+
+      <div class="section-head">
+        <div>
+          <h3>Live Plays</h3>
+          <p>Your manually tracked live analyzer plays.</p>
+        </div>
+        <button id="clearResultsBtn" class="small-btn danger">Clear live</button>
+      </div>
       <div class="stats-grid">
         <div class="stat card"><span>Tracked</span><strong id="trackedCount">0</strong></div>
         <div class="stat card"><span>Win rate</span><strong id="winRate">—</strong></div>

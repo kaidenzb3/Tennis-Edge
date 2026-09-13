@@ -1,6 +1,14 @@
-# Tennis Edge v2.4
+# Tennis Edge v2.5
 
 A mobile-first, installable WTA analysis PWA.
+
+## v2.5 schedule + pre-game tracking
+
+- Upcoming matches show local start day/time and a countdown.
+- Every upcoming modeled lean is frozen into a Pre-Game Lean Log.
+- Tracks winner hit %, exact lean %, Strong-tier winner %, 2–0 hit %, and 2–1 hit %.
+- Stores model grade, win probability, 2–0 probability, 2–1 probability, Elo edges, tournament, surface and scheduled time.
+- Attempts automatic grading from completed matches; manual grading buttons remain available if the free API does not expose completed results.
 
 ## v2.4 critical historical-sync fix
 
