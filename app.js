@@ -1,14 +1,12 @@
 const $ = id => document.getElementById(id);
 
-const API_BASE = "https://api.livetennisapi.com/api/public/v1";
-const HISTORICAL_SOURCE = "https://raw.githubusercontent.com/36-SURE/2026/main/data/wta_matches_2021_2026.csv";
 const STORE = {
   get(k,d){ try { const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); } catch { return d; } },
   set(k,v){ localStorage.setItem(k,JSON.stringify(v)); }
 };
 
 let settings = STORE.get("te2-settings",{strong:82,good:72,autoRefresh:true});
-let history = STORE.get("te2-history",[]);
+let history = STORE.get("te3-history",[]);
 let modelCache = {};
 let liveTimer = null;
 let notified = new Set(STORE.get("te2-notified",[]));
@@ -222,8 +220,8 @@ async function syncHistory(force=false){
   if(btn){ btn.textContent="Syncing…"; btn.disabled=true; }
   setSourceStatus("history","loading");
 
-  const last=STORE.get("te2-history-updated",0);
-  if(!force && history.length && Date.now()-last < 12*60*60*1000){
+  const last=STORE.get("te3-history-updated",0);
+  if(!force && history.length && Date.now()-last < 24*60*60*1000){
     buildModelCache();
     refreshAllModelViews();
     setSourceStatus("history","ok");
@@ -232,38 +230,16 @@ async function syncHistory(force=false){
   }
 
   try{
-    const res=await fetch(`${HISTORICAL_SOURCE}?ts=${Date.now()}`,{cache:"no-store"});
-    if(!res.ok) throw new Error(`Historical source HTTP ${res.status}`);
-
-    const rows=parseCSV(await res.text());
-    if(rows.length<5000) throw new Error(`Historical source returned only ${rows.length} rows`);
-
-    // CRITICAL v2.4 FIX:
-    // The raw CSV has ~50 columns and is too large for phone localStorage.
-    // Keep only the six fields Tennis Edge actually needs for Elo/form.
-    history=rows
-      .filter(r=>r.winner_name&&r.loser_name&&r.tourney_date)
-      .map(r=>({
-        winner_name:r.winner_name,
-        loser_name:r.loser_name,
-        surface:r.surface||"Hard",
-        tourney_date:r.tourney_date,
-        match_num:r.match_num||"",
-        score:r.score||""
-      }));
-
-    if(history.length<5000) throw new Error("Historical source parsed, but too few usable WTA matches remained.");
-
-    // Persist only the compact version. This avoids Safari/Chrome quota failures.
+    const rows=await TennisDataProvider.history(getApiKey());
+    if(!rows.length) throw new Error("Cito returned no usable WTA history. Check the plan, key, and response format.");
+    history=rows;
     try{
-      STORE.set("te2-history",history);
-      STORE.set("te2-history-updated",Date.now());
+      STORE.set("te3-history",history);
+      STORE.set("te3-history-updated",Date.now());
     }catch(storageErr){
-      // If an old oversized cache is blocking storage, wipe only Tennis Edge historical cache and retry.
-      localStorage.removeItem("te2-history");
-      localStorage.removeItem("te2-history-updated");
-      STORE.set("te2-history",history);
-      STORE.set("te2-history-updated",Date.now());
+      localStorage.removeItem("te3-history");
+      STORE.set("te3-history",history);
+      STORE.set("te3-history-updated",Date.now());
     }
 
     buildModelCache();
@@ -295,7 +271,7 @@ function renderPlayerDatalist(){
 function renderHistoryStatus(){
   $("historyCount").textContent=history.length.toLocaleString();
   if($("profileCount")) $("profileCount").textContent=PlayerDB.profiles.size.toLocaleString();
-  const t=STORE.get("te2-history-updated",0);
+  const t=STORE.get("te3-history-updated",0);
   $("historyUpdated").textContent=t?new Date(t).toLocaleString():"Never";
 }
 
@@ -375,6 +351,12 @@ function mSurface(m){
 function tournamentName(m){
   return typeof m?.tournament==="string" ? m.tournament : (m?.tournament?.name || m?.tournament_name || "WTA");
 }
+function matchRank(m,n){
+  const p=pObj(m,n), direct=Number(p?.rank ?? p?.ranking);
+  if(Number.isFinite(direct)&&direct>0)return direct;
+  const row=(STORE.get("te3-rankings",[])||[]).find(r=>(p?.id&&String(r.id)===String(p.id))||norm(r.name)===norm(pName(m,n)));
+  return row?.rank??null;
+}
 function scoreText(m){
   const s=scoreObj(m), g=s.games;
   if(!Array.isArray(g)||!Array.isArray(g[0])||!Array.isArray(g[1])) return "";
@@ -401,30 +383,16 @@ function currentSetIndex(m){
 }
 
 // ---------- API ----------
-function getApiKey(){ return STORE.get("te2-api-key",""); }
+function getApiKey(){ return STORE.get("te3-cito-key",""); }
 async function apiFetch(path){
-  const key=getApiKey();
-  if(!key) throw new Error("No API key saved.");
-
-  let res;
-  try{
-    res=await fetch(API_BASE+path,{headers:{"X-API-Key":key},cache:"no-store"});
-  }catch(_err){
-    const join=path.includes("?")?"&":"?";
-    res=await fetch(`${API_BASE}${path}${join}token=${encodeURIComponent(key)}`,{cache:"no-store"});
-  }
-
-  if(res.status===401) throw new Error("API key was rejected.");
-  if(res.status===429) throw new Error("Free daily request limit reached.");
-  if(res.status===403) throw new Error("This endpoint is not on the free tier.");
-  if(!res.ok) throw new Error(`API error ${res.status}`);
-  return res.json();
+  return TennisDataProvider.request(path,getApiKey());
 }
 function unwrapMatches(j){
   if(Array.isArray(j)) return j;
   if(Array.isArray(j?.data)) return j.data;
   if(Array.isArray(j?.matches)) return j.matches;
   if(Array.isArray(j?.results)) return j.results;
+  if(Array.isArray(j?.items)) return j.items;
   return [];
 }
 
@@ -472,7 +440,7 @@ function enrichUpcomingWithFixtures(matches,fixtures){
 function tournamentValue(m){return tournamentName(m)||"Unknown";}
 function currentTournamentFilter(){return STORE.get("te2-tournament-filter","all");}
 function uniqueTournaments(){
-  const all=[...(STORE.get("te2-live-cache",null)?.data||[]),...(STORE.get("te2-upcoming-cache",null)?.data||[])];
+  const all=[...(STORE.get("te3-live-cache",null)?.data||[]),...(STORE.get("te3-upcoming-cache",null)?.data||[])];
   return [...new Set(all.map(tournamentValue).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
 function populateTournamentFilters(){
@@ -494,12 +462,12 @@ function setTournamentFilter(v){
   renderTournamentFilteredViews();
 }
 function renderModelBoardFiltered(){
-  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
+  const up=applyTournamentFilter(STORE.get("te3-upcoming-cache",null)?.data||[]);
   $("modelBoard").innerHTML=up.length?up.map(modelMatchCard).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
 }
 function renderTournamentFilteredViews(){
-  const live=applyTournamentFilter(STORE.get("te2-live-cache",null)?.data||[]);
-  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
+  const live=applyTournamentFilter(STORE.get("te3-live-cache",null)?.data||[]);
+  const up=applyTournamentFilter(STORE.get("te3-upcoming-cache",null)?.data||[]);
   $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No live matches in this tournament.</div>';
   $("upcomingMatches").innerHTML=up.length?up.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
   renderModelBoardFiltered();bindMatchButtons();
@@ -615,6 +583,7 @@ function liveMatchCard(m,live=true){
   const server=s.server;
   const aDisp=`${server===1?'<span class="server">●</span> ':''}${esc(a)}`;
   const bDisp=`${server===2?'<span class="server">●</span> ':''}${esc(b)}`;
+  const rankA=matchRank(m,1),rankB=matchRank(m,2);
 
   let metrics="";
   if(!pm.error){
@@ -629,7 +598,7 @@ function liveMatchCard(m,live=true){
     <div class="match-top">
       <div>
         <div class="match-title">${aDisp} vs ${bDisp}</div>
-        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}</div>${!live?`<div class="start-time"><span class="date ${matchStartDate(m)?"":"time-tbd"}">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span><span class="time-source">${esc(timeSourceText(m))}</span></div>`:""}
+        <div class="match-meta">${esc(tournamentName(m))} · ${esc(surface)} · ${esc(m.round||"")}${rankA||rankB?` · ranks ${rankA??"?"} / ${rankB??"?"}`:""}</div>${!live?`<div class="start-time"><span class="date ${matchStartDate(m)?"":"time-tbd"}">${esc(formatMatchTime(m))}</span><span class="countdown">${esc(countdownText(m))}</span><span class="time-source">${esc(timeSourceText(m))}</span></div>`:""}
       </div>
       <span class="badge ${tier}">${label}</span>
     </div>
@@ -646,8 +615,8 @@ function liveMatchCard(m,live=true){
 
 function findCachedMatch(id,a,b){
   const all=[
-    ...(STORE.get("te2-live-cache",null)?.data||[]),
-    ...(STORE.get("te2-upcoming-cache",null)?.data||[])
+    ...(STORE.get("te3-live-cache",null)?.data||[]),
+    ...(STORE.get("te3-upcoming-cache",null)?.data||[])
   ];
   return all.find(m=>String(m.id||"")===String(id||""))
       || all.find(m=>norm(pName(m,1))===norm(a)&&norm(pName(m,2))===norm(b))
@@ -753,13 +722,15 @@ function bindMatchButtons(){
 async function refreshLive(){
   $("refreshLiveBtn").textContent="Loading…"; $("refreshLiveBtn").disabled=true;
   try{
-    const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
-    const data=unwrapMatches(j);
-    STORE.set("te2-live-cache",{time:Date.now(),data});
+    const data=await TennisDataProvider.live(getApiKey());
+    await refreshRankings(false);
+    STORE.set("te3-live-cache",{time:Date.now(),data});
     $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     maybeNotify(data);
+    scanDeciders(data);
+    if(Date.now()-STORE.get("te3-results-updated",0)>30*60*1000) refreshCompletedData();
   }catch(err){
     $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
     setApiConnected(false); setSourceStatus("live","bad"); setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
@@ -769,16 +740,38 @@ async function refreshLive(){
 }
 $("refreshLiveBtn").onclick=refreshLive;
 
+async function refreshCompletedData(){
+  try{
+    const data=await TennisDataProvider.recent(getApiKey());
+    STORE.set("te3-completed-cache",{time:Date.now(),data});
+    STORE.set("te3-results-updated",Date.now());
+    renderCompletedResults(data);
+    gradeDeciders(data);
+    const log=pregameStore();let changed=false;
+    for(const row of log){
+      if(row.status!=="pending")continue;
+      const match=data.find(m=>String(m.id)===String(row.matchId));
+      const winner=match?.winner?.name;if(!winner)continue;
+      row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);
+      row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;
+      row.gradedAt=Date.now();changed=true;
+    }
+    if(changed){savePregameStore(log);renderPregameLog();}
+  }catch(err){setSourceError(`Completed results: ${err.message||String(err)}`);}
+}
+function renderCompletedResults(data){
+  const el=$("completedMatches");if(!el)return;
+  el.innerHTML=data.length?data.slice(0,30).map(m=>`<div class="match-card"><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · winner ${esc(m?.winner?.name||"unavailable")}</div><div class="scoreline">${esc(scoreText(m)||"Final")}</div></div>`).join(""):'<div class="empty card">No recent completed WTA singles matches returned.</div>';
+}
+
 async function refreshUpcoming(){
   $("refreshUpcomingBtn").textContent="Loading…"; $("refreshUpcomingBtn").disabled=true;
   try{
-    const [mj,fj]=await Promise.all([
-      apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100"),
-      apiFetch("/fixtures?tour=wta&draw=singles&limit=100")
-    ]);
-    const data=enrichUpcomingWithFixtures(unwrapMatches(mj),unwrapMatches(fj));
-    STORE.set("te2-upcoming-cache",{time:Date.now(),data});
+    const data=await TennisDataProvider.upcoming(getApiKey());
+    await refreshRankings(false);
+    STORE.set("te3-upcoming-cache",{time:Date.now(),data});
     logUpcomingBoard(data);
+    renderDecider();
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
   }catch(err){
@@ -802,7 +795,7 @@ function maybeNotify(matches){
   STORE.set("te2-notified",[...notified].slice(-100));
 }
 
-async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
+async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const data=await TennisDataProvider.recent(getApiKey()),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();gradeDeciders(data);btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
 $("refreshPregameResultsBtn").onclick=refreshPregameResults;$("pregameFilter").onchange=renderPregameLog;$("pregameSort").onchange=renderPregameLog;
 
 // ---------- Live grade ----------
@@ -920,16 +913,17 @@ $("clearResultsBtn").onclick=()=>{ if(confirm("Clear tracked plays?")){ STORE.se
 
 // ---------- Settings ----------
 $("saveApiBtn").onclick=()=>{
-  STORE.set("te2-api-key",$("apiKey").value.trim());
+  STORE.set("te3-cito-key",$("apiKey").value.trim());
   setApiConnected(!!getApiKey());
   $("apiTestMsg").textContent="Saved on this device.";
   configureTimer();
+  if(getApiKey()){syncHistory(false);refreshLive();refreshUpcoming();}
 };
 $("testApiBtn").onclick=async()=>{
-  STORE.set("te2-api-key",$("apiKey").value.trim());
+  STORE.set("te3-cito-key",$("apiKey").value.trim());
   $("apiTestMsg").textContent="Testing…";
   try{
-    await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=1");
+    await TennisDataProvider.live(getApiKey());
     $("apiTestMsg").textContent="Connected ✓"; setApiConnected(true);
   }catch(err){
     $("apiTestMsg").textContent=err.message; setApiConnected(false);
@@ -965,17 +959,12 @@ function refreshAllModelViews(){
   renderHistoryStatus();
   updateAnalyzerProfile(true);
 
-  const live=STORE.get("te2-live-cache",null)?.data||[];
-  const up=STORE.get("te2-upcoming-cache",null)?.data||[];
+  const live=STORE.get("te3-live-cache",null)?.data||[];
+  const up=STORE.get("te3-upcoming-cache",null)?.data||[];
 
-  if(live.length){
-    $("liveMatches").innerHTML=live.map(m=>liveMatchCard(m,true)).join("");
-    $("liveUpdated").textContent=`Cached · ${live.length} live`;
-  }
-  if(up.length) $("upcomingMatches").innerHTML=up.map(m=>liveMatchCard(m,false)).join("");
-
-  refreshModelBoard();
-  bindMatchButtons();
+  if(live.length) $("liveUpdated").textContent=`Cached · ${live.length} live`;
+  populateTournamentFilters();
+  renderTournamentFilteredViews();
 
   if($("preA").value.trim()&&$("preB").value.trim()){
     const s=$("preSurface").value;
@@ -983,10 +972,11 @@ function refreshAllModelViews(){
   }
 }
 function loadCaches(){
-  const live=STORE.get("te2-live-cache",null),up=STORE.get("te2-upcoming-cache",null);
+  const live=STORE.get("te3-live-cache",null),up=STORE.get("te3-upcoming-cache",null);
   if(live?.data)$("liveUpdated").textContent=`Cached ${new Date(live.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`;
   if(up?.data)logUpcomingBoard(up.data);
   populateTournamentFilters();renderTournamentFilteredViews();
+  renderCompletedResults(STORE.get("te3-completed-cache",null)?.data||[]);
 }
 
 
@@ -1049,7 +1039,7 @@ configureTimer();
 updateAnalyzerProfile(false);
 
 // Automatically refresh the historical player/Elo database at least twice per day.
-setTimeout(()=>syncHistory(false),350);
+if(getApiKey())setTimeout(()=>syncHistory(false),350);
 
 // If a key exists, refresh current boards shortly after startup.
 if(getApiKey()){
