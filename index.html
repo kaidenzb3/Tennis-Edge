@@ -300,7 +300,8 @@
 
     <section id="view-decider" class="view">
       <div class="section-head"><div><h3>Decider Strategy</h3><p>Favourite loses Set 1, wins Set 2. Watch the underdog at the start of Set 3.</p></div></div>
-      <div class="card"><p class="muted small">Add one match before play. Enter the set scores and odds as they happen. Tennis Edge checks the pattern, calculates price snapback, and saves one signal per match. Live scores can still fill in when your existing connection works; this strategy does not require an API key.</p></div>
+      <div class="card"><p class="muted small">Add a match before play. Tennis Edge can look up match-winner odds and save prices as you update sets. Historical Elo and recent form load from the free history sync. Live serve and break-point stats still need a working live-stat feed.</p></div>
+      <div class="card form-card"><h4>Automatic odds</h4><label>The Odds API key<input id="oddsApiKey" type="password" autocomplete="off" placeholder="Paste your key on this device"></label><div class="button-row"><button id="saveOddsKey" class="primary-btn" type="button">Save key</button><button id="testOddsKey" class="ghost-btn" type="button">Test connection</button></div><p id="oddsStatus" class="muted small">A saved key fills odds for supported WTA matches while the app is open. Manual odds remain available.</p></div>
       <div class="stats-grid decider-stats">
         <div class="stat card"><span>Signals</span><strong id="deciderSignals">0</strong></div>
         <div class="stat card"><span>W–L</span><strong id="deciderRecord">0-0</strong></div>
@@ -317,7 +318,7 @@
           <label>Tournament<input id="manualTournament" placeholder="WTA tournament"></label>
           <label>Surface<select id="manualSurface"><option>Hard</option><option>Clay</option><option>Grass</option><option>Carpet</option></select></label>
           <label>Original pre-match favourite<select id="manualFavourite"><option value="1">Player A</option><option value="2">Player B</option></select></label>
-          <label>Favourite decimal odds<input id="manualPreOdds" type="number" min="1.01" step="0.01" required placeholder="1.50"></label>
+          <label>Favourite decimal odds (optional with automatic odds)<input id="manualPreOdds" type="number" min="1.01" step="0.01" placeholder="1.50"></label>
           <label>Favourite ranking (optional)<input id="manualFavRank" type="number" min="1" step="1"></label>
           <label>Opponent ranking (optional)<input id="manualOppRank" type="number" min="1" step="1"></label>
         </div>
@@ -412,6 +413,7 @@
 
 <script src="decider.js"></script>
 <script src="app.js"></script>
+<script src="odds-auto.js"></script>
 <script src="decider-app.js"></script>
 </body>
 </html>

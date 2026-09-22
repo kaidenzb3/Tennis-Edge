@@ -1,6 +1,12 @@
 # Tennis Edge — basic site with Decider strategy
 
-This restores the v2.6 Tennis Edge layout and its Live, Model, Analyzer, Results, and Settings sections. The added Decider tab works without an API key, paid plan, or local server. The existing Live Tennis API connection remains optional; if its key is rejected, the other screens and manual Decider tracking still work.
+This keeps the v2.6 Tennis Edge layout and its Live, Model, Analyzer, Results, and Settings sections. The Decider tab works manually without an API key. Optional automatic match-winner prices use The Odds API. The existing Live Tennis API connection remains optional; if its key is rejected, the other screens and manual Decider tracking still work.
+
+## Optional automatic odds
+
+Get a key from https://the-odds-api.com/ and save it in the Decider tab. The key stays in this device's browser storage and is not committed to this repository. Add a WTA match before it starts and leave favourite odds blank: the app looks up its pre-match favourite and price. As you save Set 1 and Set 2 scores, it attempts to capture the next odds snapshots. If the existing live score connection works, score refreshes also trigger odds lookup. Coverage and timing vary by tournament and bookmaker; manual price entry remains available. The free plan has a monthly request limit, so the app looks up selected matches rather than polling all WTA matches continuously. No bets are placed.
+
+Historical Elo and recent form are calculated from the existing free match-history sync and shown on Decider cards. Live first-serve and break-point stats require a working live-stat feed; they are not provided by The Odds API.
 
 ## Add a match
 

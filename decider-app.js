@@ -78,6 +78,7 @@ function deciderScan(matches){
   }
   if(changed)DeciderStore.write(state);
   deciderRender();
+  for(const m of matches)deciderAutoFor(m);
 }
 function deciderGrade(matches){
   const state=DeciderStore.read();let changed=false;
@@ -98,6 +99,28 @@ function deciderManualWinner(m){
   return pName(m,a>b?1:2);
 }
 const deciderFmt=n=>n==null||!Number.isFinite(n)?"—":Number(n).toFixed(1);
+const oddsBusy=new Set();
+async function deciderAutoOdds(m,stage){
+  const id=deciderId(m),state=DeciderStore.read(),f=state.frozen[id];
+  if(!OddsAuto.key()||!f||state.odds[id]?.[stage]||oddsBusy.has(`${id}:${stage}`))return;
+  oddsBusy.add(`${id}:${stage}`);
+  try{
+    const quote=await OddsAuto.find(pName(m,1),pName(m,2),id,true);
+    if(!quote)return;
+    const fav=quote.players.find(p=>norm(p.name)===norm(f.name));
+    const dog=quote.players.find(p=>norm(p.name)===norm(f.opponent));
+    if(!fav||!dog)return;
+    deciderSaveOdds(id,stage,fav.odds,stage==="set3"?dog.odds:null,`The Odds API: ${quote.bookmaker}`);
+    $("oddsStatus").textContent=`Saved ${stage==="after1"?"Set 1":"Set 3"} odds from ${quote.bookmaker}. ${OddsAuto.remaining()??"?"} requests remain.`;
+  }catch(err){$("oddsStatus").textContent=`Automatic price unavailable: ${err.message}`;}
+  finally{oddsBusy.delete(`${id}:${stage}`)}
+}
+function deciderAutoFor(m){
+  const state=DeciderStore.read(),id=deciderId(m),f=state.frozen[id];if(!f)return;
+  const phase=Decider.stage(m,f.index),s=state.odds[id]||{};
+  if(completedSet(m,0)?.winner===3-f.index&&!completedSet(m,1)&&!s.after1)deciderAutoOdds(m,"after1");
+  if(phase==="DECIDER"&&!s.set3)deciderAutoOdds(m,"set3");
+}
 function deciderRender(){
   const state=DeciderStore.read(),signals=Object.values(state.signals),stats=Decider.summary(signals);
   const summary={deciderSignals:stats.signals,deciderRecord:`${stats.wins}-${stats.losses}`,
@@ -126,20 +149,37 @@ function deciderRender(){
     const games=scoreObj(m).games;
     const scoreInputs=manual?`<div class="decider-score-grid">${[0,1,2].map(i=>`<div class="decider-set"><span>Set ${i+1}</span><input data-score="a${i}" type="number" min="0" max="30" placeholder="A" value="${games?.[0]?.[i]??""}"><input data-score="b${i}" type="number" min="0" max="30" placeholder="B" value="${games?.[1]?.[i]??""}"></div>`).join("")}</div><button class="small-btn" data-action="score">Save score</button>`:"";
     const label=f&&m.status==="upcoming"?"WATCHING":verdict?.state||"PRE-MATCH";
-    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="PASS"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div><p class="muted small">${esc(verdict?.reason||"")}</p>`:""}${scoreInputs}${action}</div>`;
+    const profile=f?playerMetrics(f.name,mSurface(m)):null;
+    const opponent=f?playerMetrics(f.opponent,mSurface(m)):null;
+    const profileText=f?`<div class="match-meta">${esc(f.name)}: Elo ${profile?.elo??"?"}, surface Elo ${profile?.surfElo??"?"}, last 10 ${profile?`${profile.last10}/${profile.played10}`:"?"} · ${esc(f.opponent)}: Elo ${opponent?.elo??"?"}, surface Elo ${opponent?.surfElo??"?"}, last 10 ${opponent?`${opponent.last10}/${opponent.played10}`:"?"}</div>`:"";
+    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="PASS"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div>${profileText}<p class="muted small">${esc(verdict?.reason||"")}</p>`:""}${scoreInputs}${action}</div>`;
   }).join(""):'<div class="empty card">Add a match above, or load the Live board.</div>';
   $("deciderLog").innerHTML=signals.sort((a,b)=>b.createdAt-a.createdAt).map(s=>`<div class="match-card"><div class="match-top"><div><div class="match-title">${esc(s.favourite)} vs ${esc(s.underdog)}</div><div class="match-meta">${esc(s.tournament)} · ${esc(s.surface)} · Set 2 ${esc(s.set2Score)} · rank edge ${s.rankingDifference??"?"} · surface Elo edge ${s.surfaceEloDifference??"?"}</div></div><span class="badge ${s.result==="win"?"strong":s.result==="loss"?"pass":"watch"}">${esc(s.state)}</span></div><div class="match-meta">Snapback ${deciderFmt(s.snapbackRecoveryPct)}% (${esc(s.snapbackBucket)}) · favourite odds ${s.favouriteOdds??"?"} (${esc(s.favouriteOddsBucket)}) · underdog odds ${s.underdogOdds??"?"} · ${s.result||"pending"}</div></div>`).join("")||'<div class="empty card">No signals yet.</div>';
 }
-$("manualDeciderForm").onsubmit=e=>{
+$("manualDeciderForm").onsubmit=async e=>{
   e.preventDefault();
-  const a=$("manualA").value.trim(),b=$("manualB").value.trim(),index=Number($("manualFavourite").value);
+  const a=$("manualA").value.trim(),b=$("manualB").value.trim();let index=Number($("manualFavourite").value);
   if(!a||!b||norm(a)===norm(b))return alert("Enter two different players.");
   const m={id:`manual:${Date.now()}:${Math.random().toString(36).slice(2,7)}`,players:{p1:{name:a},p2:{name:b}},
     tournament:$("manualTournament").value.trim()||"WTA",surface:$("manualSurface").value,score:{games:[[],[]],points:[null,null],server:null},status:"upcoming"};
   const rank=v=>v===""?null:Number(v);
   const ranks={1:index===1?rank($("manualFavRank").value):rank($("manualOppRank").value),
     2:index===2?rank($("manualFavRank").value):rank($("manualOppRank").value)};
-  try{const state=DeciderStore.read();state.manual.unshift(m);DeciderStore.write(state);deciderFreeze(m,index,$("manualPreOdds").value,ranks);e.target.reset();}
+  try{
+    let price=$("manualPreOdds").value,source="manual";
+    if(!price&&OddsAuto.key()){
+      $("oddsStatus").textContent="Looking up pre-match odds…";
+      const quote=await OddsAuto.find(a,b,m.id);
+      if(!quote)throw new Error("Match-winner odds were not found. Enter the pre-match odds manually.");
+      if(quote.commenceTime&&new Date(quote.commenceTime)<=new Date())throw new Error("This match has started; the original favourite cannot be frozen now.");
+      const ordered=[...quote.players].sort((x,y)=>x.odds-y.odds);
+      if(ordered[0].odds===ordered[1].odds)throw new Error("The prices are tied; choose the original favourite manually.");
+      index=norm(ordered[0].name)===norm(a)?1:2;price=ordered[0].odds;source=`The Odds API: ${quote.bookmaker}`;
+      $("oddsStatus").textContent=`Original favourite and odds saved from ${quote.bookmaker}. ${OddsAuto.remaining()??"?"} requests remain.`;
+    }
+    if(!price)throw new Error("Enter pre-match odds or save an Odds API key.");
+    const state=DeciderStore.read();state.manual.unshift(m);DeciderStore.write(state);deciderFreeze(m,index,price,ranks,source);e.target.reset();
+  }
   catch(err){alert(err.message||String(err));}
 };
 $("deciderBoard").onclick=e=>{
@@ -160,7 +200,7 @@ $("deciderBoard").onclick=e=>{
       target.score={games:[[0,1,2].map(i=>val("a",i)),[0,1,2].map(i=>val("b",i))],points:[null,null],server:null};
       target.status="live";const winner=deciderManualWinner(target);
       if(winner){target.winner={name:winner};target.status="completed";}
-      DeciderStore.write(state);deciderScan([target]);if(winner)deciderGrade([target]);
+      DeciderStore.write(state);deciderScan([target]);deciderAutoFor(target);if(winner)deciderGrade([target]);
     }
   }catch(err){alert(err.message||String(err));}
 };
@@ -177,3 +217,5 @@ $("minSnapback").value=initialDecider.minSnapbackRecoveryPct;
 $("betterRanking").checked=initialDecider.betterRankingRequired;
 $("betterSurfaceElo").checked=initialDecider.betterSurfaceEloRequired;
 deciderRender();
+$("saveOddsKey").onclick=()=>{OddsAuto.saveKey($("oddsApiKey").value);$("oddsApiKey").value="";$("oddsStatus").textContent=OddsAuto.key()?"Key saved on this device. Add a match to fetch pre-match odds.":"Key cleared."};
+$("testOddsKey").onclick=async()=>{try{$("oddsStatus").textContent="Checking WTA coverage…";const list=await OddsAuto.sports();$("oddsStatus").textContent=`Connection worked. ${list.length} active WTA competitions listed. Add a match to find prices.`;}catch(err){$("oddsStatus").textContent=err.message}};
