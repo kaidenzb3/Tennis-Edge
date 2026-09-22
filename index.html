@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v3.0</span></h1>
+      <h1>Tennis Edge <span class="v">v2.6</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -41,8 +41,8 @@
 
       <div id="apiBanner" class="banner">
         <div>
-          <strong>Connect tennis data</strong>
-          <span>Add a Cito / tennisapi.dev key in Settings. The key stays on your device.</span>
+          <strong>Connect free live scores</strong>
+          <span>Add a Live Tennis API free key in Settings. The key stays on your device.</span>
         </div>
         <button class="small-btn" data-view-jump="settings">Set up</button>
       </div>
@@ -65,7 +65,7 @@
       </div>
 
       <div id="liveMatches" class="match-list">
-        <div class="empty card">Connect your Cito key to load live WTA matches.</div>
+        <div class="empty card">Connect your free API key to load live WTA matches.</div>
       </div>
 
       <div class="section-head">
@@ -90,7 +90,7 @@
       </div>
 
       <div class="card data-card">
-        <div class="data-row"><span>Historical source</span><strong>Cito WTA match archive (compact local cache)</strong></div>
+        <div class="data-row"><span>Historical source</span><strong>Public WTA 2021–2026 snapshot (compact cache)</strong></div>
         <div class="data-row"><span>Player profiles</span><strong id="profileCount">0</strong></div>
         <div class="data-row"><span>Local matches loaded</span><strong id="historyCount">0</strong></div>
         <div class="data-row"><span>Last sync</span><strong id="historyUpdated">Never</strong></div>
@@ -296,36 +296,6 @@
         <div class="stat card"><span>Strong plays</span><strong id="strongRecord">0-0</strong></div>
       </div>
       <div id="resultsList" class="match-list"></div>
-      <div class="section-head"><div><h3>Recent WTA results</h3><p>Completed matches from Cito.</p></div></div>
-      <div id="completedMatches" class="match-list"><div class="empty card">Connect Cito to load results.</div></div>
-    </section>
-
-    <section id="view-decider" class="view">
-      <div class="section-head"><div><h3>Decider Scanner</h3><p>WTA singles research signals</p></div></div>
-      <div class="card"><p class="muted small">Freeze the original favourite and pre-match price before play. The scanner then follows Set 1, Set 2, and the deciding set automatically. Tennis data does not include sportsbook odds; enter snapshots when available.</p></div>
-      <div class="stats-grid decider-stats">
-        <div class="stat card"><span>Signals</span><strong id="deciderSignals">0</strong></div>
-        <div class="stat card"><span>W–L</span><strong id="deciderRecord">0-0</strong></div>
-        <div class="stat card"><span>Hit rate</span><strong id="deciderHitRate">—</strong></div>
-        <div class="stat card"><span>Avg underdog odds</span><strong id="deciderAvgOdds">—</strong></div>
-        <div class="stat card"><span>Units profit</span><strong id="deciderProfit">—</strong></div>
-        <div class="stat card"><span>ROI</span><strong id="deciderRoi">—</strong></div>
-      </div>
-      <div class="card">
-        <h4>Research filters</h4>
-        <div class="grid-2">
-          <label>Maximum Set 3 favourite odds<input id="maxSet3Odds" type="number" min="1.01" step="0.01" value="1.60"></label>
-          <label>Minimum snapback recovery %<input id="minSnapback" type="number" min="0" step="1" value="80"></label>
-        </div>
-        <label class="toggle"><input id="betterRanking" type="checkbox" checked><span>Better ranking required</span></label>
-        <label class="toggle"><input id="betterSurfaceElo" type="checkbox"><span>Better surface Elo required</span></label>
-        <button id="saveDeciderFilters" class="primary-btn" type="button">Save research filters</button>
-        <p class="muted small">These starting thresholds have not been shown to be profitable.</p>
-      </div>
-      <div class="section-head"><div><h3>Match scanner</h3><p>Prices are frozen at each capture point.</p></div></div>
-      <div id="deciderBoard" class="match-list"></div>
-      <div class="section-head"><div><h3>Signal log</h3><p>Completed results grade automatically when available.</p></div></div>
-      <div id="deciderLog" class="match-list"></div>
     </section>
 
     <section id="view-settings" class="view">
@@ -337,9 +307,9 @@
       </div>
 
       <div class="card">
-        <h4>Tennis data connection</h4>
-        <label>Cito / tennisapi.dev API key
-          <input id="apiKey" type="password" placeholder="Your Cito key" autocomplete="off" />
+        <h4>Free live-score connection</h4>
+        <label>Live Tennis API key
+          <input id="apiKey" type="password" placeholder="twjp_..." autocomplete="off" />
         </label>
         <div class="button-row">
           <button id="saveApiBtn" class="primary-btn" type="button">Save key</button>
@@ -382,8 +352,8 @@
 
       <div class="card info-card">
         <h4>Data & cost</h4>
-        <p>Scores, schedules, rankings and historical results use Cito / tennisapi.dev where your plan supports them. Tennis Edge computes its own Elo locally. Odds are manually captured through a separate provider.</p>
-        <p>The free evaluation allowance may be too small for regular live scanning. No API key is shipped with the app.</p>
+        <p>Live scores use the Live Tennis API free tier. Historical Elo/form calculations use a public 2021–2026 WTA results snapshot hosted on GitHub; Tennis Edge computes its own ratings locally.</p>
+        <p>No paid backend, database, or app-store account is required for this version.</p>
       </div>
     </section>
   </main>
@@ -393,14 +363,10 @@
     <button data-view="model">Model</button>
     <button data-view="analyzer">Analyzer</button>
     <button data-view="results">Results</button>
-    <button data-view="decider">Decider</button>
     <button data-view="settings">Settings</button>
   </nav>
 </div>
 
-<script src="provider.js"></script>
-<script src="decider.js"></script>
 <script src="app.js"></script>
-<script src="decider-app.js"></script>
 </body>
 </html>
