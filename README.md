@@ -1,129 +1,29 @@
-# Tennis Edge v2.6
+# Tennis Edge — basic site with Decider strategy
 
-A mobile-first, installable WTA analysis PWA.
+This restores the v2.6 Tennis Edge layout and its Live, Model, Analyzer, Results, and Settings sections. The added Decider tab works without an API key, paid plan, or local server. The existing Live Tennis API connection remains optional; if its key is rejected, the other screens and manual Decider tracking still work.
 
-## v2.6 start times + tournament selector
+## Add a match
 
-- Fixed start times by reading the API's actual `scheduled_time` match field.
-- Upcoming refresh now also uses the FREE `/fixtures` endpoint and merges `start_time` / `event_date`.
-- Exact UTC start times display automatically in the device's local timezone.
-- Date-only fixtures show **Time TBD** until the order of play assigns a court time.
-- Added a synchronized Tournament dropdown across Live, Upcoming, and Pre-Match Model.
+1. Open **Decider** and enter both players, the original pre-match favourite, and that favourite's decimal odds before play. This locks the baseline for the match.
+2. Enter the set scores on the match card as the match progresses. The app shows **SETUP FORMING** when the original favourite has lost Set 1 and is competitive in Set 2.
+3. After Set 1, enter the favourite's new odds. If the favourite wins Set 2, enter both players' odds at the start of Set 3. The app calculates snapback and flags the setup as **STRONG**, **WATCH**, **PASS**, or **WAITING FOR PRICE**.
+4. Enter the final Set 3 score. The saved signal is graded for the underdog and included in the results summary.
 
-## v2.5 schedule + pre-game tracking
+The research filters start at maximum Set 3 favourite odds of 1.60, minimum snapback recovery of 80%, and better ranking required. You can change them in the Decider tab. They are research filters, not proven profitable rules.
 
-- Upcoming matches show local start day/time and a countdown.
-- Every upcoming modeled lean is frozen into a Pre-Game Lean Log.
-- Tracks winner hit %, exact lean %, Strong-tier winner %, 2–0 hit %, and 2–1 hit %.
-- Stores model grade, win probability, 2–0 probability, 2–1 probability, Elo edges, tournament, surface and scheduled time.
-- Attempts automatic grading from completed matches; manual grading buttons remain available if the free API does not expose completed results.
+All Decider entries and results are stored in this browser on this device. Back up the device's browser data if you want to preserve them long term. No bets are placed.
 
-## v2.4 critical historical-sync fix
+## Publishing
 
-The v2.3 historical URL was reachable, but the app attempted to save the **entire ~50-column, 14,000+ match CSV into localStorage**. On phones this can exceed the browser's storage quota and show only "Sync failed."
+The files are a static site. Upload the contents of this folder to the root of the Tennis Edge GitHub repository when you approve replacing the current site. Upload every file, including `decider.js` and `decider-app.js`. The changed service worker cache name prompts installed copies to fetch this version. If a phone still shows an older installed version, close and reopen the app after the site updates.
 
-v2.4 now:
-- downloads the public WTA source,
-- immediately reduces every match to only the six fields needed for Tennis Edge,
-- stores that compact dataset,
-- migrates any old oversized cache,
-- shows the exact source error in Settings if anything still fails.
+## Files changed from v2.6
 
-This is the version to use on your phone.
+- `index.html`: adds the Decider tab and its simple match form and results summary.
+- `app.js`: lets loaded live matches and completed results update Decider entries when the existing API works.
+- `styles.css`: fits the sixth tab and Decider controls into the existing mobile design.
+- `decider.js`, `decider-app.js`: detect the Set 1 loss → Set 2 win pattern, calculate snapback, save one signal per match, and grade it.
+- `service-worker.js`, `manifest.webmanifest`: update the offline cache and app description.
+- `decider.test.js`: checks core Decider rules.
 
-## v2.3 fixes
-
-- Upcoming/not-started match → **Pre-Match Model**
-- Live match → **Live Analyzer**
-- Replaced the broken runtime Jeff Sackmann URL with a working public WTA 2021–2026 combined snapshot.
-- Player names and Elo/form profiles rebuild from the combined source.
-- Settings now has **Source status** and **Force full source sync**.
-- WTA API calls explicitly request singles.
-- API auth uses `X-API-Key`, with a browser token fallback.
-- Player-name extraction accepts more payload shapes.
-- Model board is upcoming-only.
-
-## v2.2 fixes
-
-- Restored the historical sync functions that were accidentally broken in v2.1.
-- Uses one shared PlayerDB for Live, Model and Analyzer.
-- Historical WTA data now auto-syncs twice per day and recalculates Elo everywhere.
-- Uses five recent seasons for more stable Elo ratings.
-- Automatic Model Board now uses all cached Live + Upcoming WTA matches.
-- Fixed the Live Tennis API score parser: free match objects expose `sets`, `games`, `points`, and `server` at the top level.
-- Opening a live match in Analyzer now automatically fills:
-  - player/opponent
-  - surface
-  - Elo edge
-  - last 10
-  - surface last 10
-  - Set 1 games won/lost
-  - whether the selected player won/lost Set 1
-- Data not supplied by the free API is deliberately blank and highlighted **red** so you know exactly what must be entered manually.
-- Current free-feed manual fields: 1st-serve points won, 2nd-serve points won, break points created/conceded, opponent break-point conversion, and physical/injury judgment.
-- Blank manual fields are not silently scored as zero.
-
-## v2.1 sync architecture
-
-v2.1 introduces one shared PlayerDB used by **Live, Model, and Analyzer**.
-
-- Overall Elo, surface Elo, Last 10, surface Last 10 and three-set rate are calculated once.
-- All tabs read the same player profile.
-- Finishing a historical sync immediately rebuilds the Live and Upcoming boards.
-- Opening a live match sends the same synced profile into the Analyzer.
-- Typing/selecting players in the Analyzer automatically fills Elo edge and form.
-- Changing the Analyzer surface immediately swaps to the correct surface profile.
-- Improved name matching supports common variants such as `Elena Rybakina`, `Rybakina, Elena`, and `E. Rybakina`.
-
-## v2 features
-- Automatic live WTA match loading
-- Automatic upcoming WTA match board
-- 15-minute live refresh while the app is open
-- Free API-key setup
-- Automatic sync of recent WTA results from Jeff Sackmann / Tennis Abstract's public dataset
-- Tennis Edge global Elo
-- Surface-specific Elo
-- Last-10 form
-- Same-surface last-10 form
-- Three-set frequency
-- 2–0 vs 2–1 pre-match model
-- Live Set 2 preliminary grading from the score
-- Full manual live-stat upgrade using serve and break-point numbers
-- In-app/browser notifications while the app is open
-- Tracked bets and hit-rate dashboard
-- Offline shell + cached boards
-
-## Why the historical metrics say "Tennis Edge Elo"
-Tennis Edge derives its own Elo from Jeff Sackmann's public WTA match-results dataset. It does **not** scrape the Tennis Abstract website or claim to reproduce Tennis Abstract's private/current Elo calculations exactly.
-
-Data attribution:
-Jeff Sackmann / Tennis Abstract — https://github.com/JeffSackmann/tennis_wta
-License: CC BY-NC-SA 4.0 (non-commercial, attribution required).
-
-## Live scores — free
-Tennis Edge uses Live Tennis API:
-https://livetennisapi.com
-
-The free tier currently supports live/upcoming matches and scores. The free key can be used directly in browser code. The service currently limits free accounts to 100 requests/day, so Tennis Edge refreshes live scores every 15 minutes only while the app is open.
-
-### Setup
-1. Get a free Live Tennis API key.
-2. In Tennis Edge → Settings, paste the key and tap Save.
-3. Tap Test.
-4. Go to Live and refresh.
-
-The key is stored only in your browser's localStorage. Do not use a paid API key in this static app.
-
-## Install free with GitHub Pages
-1. Create a GitHub repository called `tennis-edge`.
-2. Upload every file from this folder.
-3. Settings → Pages.
-4. Deploy from branch → `main` → `/ (root)`.
-5. Open the GitHub Pages URL on your phone.
-6. iPhone: Safari → Share → Add to Home Screen.
-7. Android: Chrome → menu → Install app / Add to Home screen.
-
-## Important limitations
-- Free live-score access does not include detailed in-play serve/break statistics, so those remain manual.
-- Browser notifications from a static PWA are dependable while the app is open. True background push notifications would require a server/push service.
-- Model probabilities are estimates, not guarantees or sportsbook odds.
+The original v2.6 Model, Analyzer, Results, Settings, icons, and local Elo code are retained.

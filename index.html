@@ -298,6 +298,48 @@
       <div id="resultsList" class="match-list"></div>
     </section>
 
+    <section id="view-decider" class="view">
+      <div class="section-head"><div><h3>Decider Strategy</h3><p>Favourite loses Set 1, wins Set 2. Watch the underdog at the start of Set 3.</p></div></div>
+      <div class="card"><p class="muted small">Add one match before play. Enter the set scores and odds as they happen. Tennis Edge checks the pattern, calculates price snapback, and saves one signal per match. Live scores can still fill in when your existing connection works; this strategy does not require an API key.</p></div>
+      <div class="stats-grid decider-stats">
+        <div class="stat card"><span>Signals</span><strong id="deciderSignals">0</strong></div>
+        <div class="stat card"><span>W–L</span><strong id="deciderRecord">0-0</strong></div>
+        <div class="stat card"><span>Hit rate</span><strong id="deciderHitRate">—</strong></div>
+        <div class="stat card"><span>Avg underdog odds</span><strong id="deciderAvgOdds">—</strong></div>
+        <div class="stat card"><span>Units profit</span><strong id="deciderProfit">—</strong></div>
+        <div class="stat card"><span>ROI</span><strong id="deciderRoi">—</strong></div>
+      </div>
+      <form id="manualDeciderForm" class="card form-card">
+        <h4>Add a match</h4>
+        <div class="grid-2">
+          <label>Player A<input id="manualA" required autocomplete="off"></label>
+          <label>Player B<input id="manualB" required autocomplete="off"></label>
+          <label>Tournament<input id="manualTournament" placeholder="WTA tournament"></label>
+          <label>Surface<select id="manualSurface"><option>Hard</option><option>Clay</option><option>Grass</option><option>Carpet</option></select></label>
+          <label>Original pre-match favourite<select id="manualFavourite"><option value="1">Player A</option><option value="2">Player B</option></select></label>
+          <label>Favourite decimal odds<input id="manualPreOdds" type="number" min="1.01" step="0.01" required placeholder="1.50"></label>
+          <label>Favourite ranking (optional)<input id="manualFavRank" type="number" min="1" step="1"></label>
+          <label>Opponent ranking (optional)<input id="manualOppRank" type="number" min="1" step="1"></label>
+        </div>
+        <button class="primary-btn" type="submit">Save original favourite</button>
+      </form>
+      <div class="card">
+        <h4>Research filters</h4>
+        <div class="grid-2">
+          <label>Max Set 3 favourite odds<input id="maxSet3Odds" type="number" min="1.01" step="0.01" value="1.60"></label>
+          <label>Min snapback recovery %<input id="minSnapback" type="number" min="0" step="1" value="80"></label>
+        </div>
+        <label class="toggle"><input id="betterRanking" type="checkbox" checked><span>Better ranking required</span></label>
+        <label class="toggle"><input id="betterSurfaceElo" type="checkbox"><span>Better surface Elo required</span></label>
+        <button id="saveDeciderFilters" class="primary-btn" type="button">Save filters</button>
+        <p class="muted small">These are configurable research filters, not proven betting rules.</p>
+      </div>
+      <div class="section-head"><div><h3>Matches</h3></div></div>
+      <div id="deciderBoard" class="match-list"></div>
+      <div class="section-head"><div><h3>Signal log</h3></div></div>
+      <div id="deciderLog" class="match-list"></div>
+    </section>
+
     <section id="view-settings" class="view">
       <div class="section-head">
         <div>
@@ -363,10 +405,13 @@
     <button data-view="model">Model</button>
     <button data-view="analyzer">Analyzer</button>
     <button data-view="results">Results</button>
+    <button data-view="decider">Decider</button>
     <button data-view="settings">Settings</button>
   </nav>
 </div>
 
+<script src="decider.js"></script>
 <script src="app.js"></script>
+<script src="decider-app.js"></script>
 </body>
 </html>

@@ -756,6 +756,7 @@ async function refreshLive(){
     const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-live-cache",{time:Date.now(),data});
+    if(typeof deciderScan==="function")deciderScan(data);
     $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
@@ -778,6 +779,7 @@ async function refreshUpcoming(){
     ]);
     const data=enrichUpcomingWithFixtures(unwrapMatches(mj),unwrapMatches(fj));
     STORE.set("te2-upcoming-cache",{time:Date.now(),data});
+    if(typeof deciderRender==="function")deciderRender();
     logUpcomingBoard(data);
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
@@ -802,7 +804,7 @@ function maybeNotify(matches){
   STORE.set("te2-notified",[...notified].slice(-100));
 }
 
-async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
+async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();if(typeof deciderGrade==="function")deciderGrade(data);btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
 $("refreshPregameResultsBtn").onclick=refreshPregameResults;$("pregameFilter").onchange=renderPregameLog;$("pregameSort").onchange=renderPregameLog;
 
 // ---------- Live grade ----------

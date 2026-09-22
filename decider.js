@@ -11,9 +11,10 @@ const Decider = (() => {
     return {p0,p1,p2,snapbackRecoveryPct,distanceFromOpenPct};
   };
   const set = (games,index) => {
+    if (games?.[0]?.[index] == null || games?.[1]?.[index] == null) return null;
     const a=Number(games?.[0]?.[index]), b=Number(games?.[1]?.[index]);
     if (!Number.isFinite(a) || !Number.isFinite(b)) return null;
-    const done=(Math.max(a,b)>=6 && Math.abs(a-b)>=2) || (Math.max(a,b)===7 && Math.min(a,b)>=5);
+    const done=(Math.max(a,b)>=6 && Math.abs(a-b)>=2) || (Math.max(a,b)===7 && Math.min(a,b)===6);
     return done ? {a,b,winner:a>b?1:2} : null;
   };
   const stage = (match,favouriteIndex) => {
@@ -21,6 +22,7 @@ const Decider = (() => {
     const first=set(g,0), second=set(g,1);
     if (!first || first.winner===favouriteIndex) return "NONE";
     if (!second) {
+      if (g?.[favouriteIndex-1]?.[1] == null || g?.[2-favouriteIndex]?.[1] == null) return "NONE";
       const f=Number(g?.[favouriteIndex-1]?.[1]), o=Number(g?.[2-favouriteIndex]?.[1]);
       return Number.isFinite(f) && Number.isFinite(o) && f>=3 && f>=o-1 ? "SETUP FORMING" : "NONE";
     }

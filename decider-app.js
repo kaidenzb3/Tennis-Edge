@@ -1,146 +1,179 @@
-/* Scanner UI and persistence. Match data and odds snapshots stay separate. */
-const OddsProvider = {
-  name:"manual",
-  get(matchId){ return STORE.get("te3-odds",{})[String(matchId)] || {}; },
-  save(matchId,stage,values){
-    const all=STORE.get("te3-odds",{}), id=String(matchId);
-    const existing=all[id] || {};
-    if(existing[stage]) throw new Error("This odds snapshot is already frozen.");
-    all[id]={...existing,[stage]:{...values,at:Date.now(),source:this.name}};
-    STORE.set("te3-odds",all);
-  },
-  snapshots(matchId){
-    const s=this.get(matchId);
-    return {preMatchFavOdds:s.pre?.favouriteOdds,afterSet1FavOdds:s.afterSet1?.favouriteOdds,
-      startSet3FavOdds:s.startSet3?.favouriteOdds,earlySet3FavOdds:s.earlySet3?.favouriteOdds,
-      underdogOdds:s.startSet3?.underdogOdds};
-  }
+// Decider Scanner runs from manual match entries or the existing live feed.
+const DeciderStore={
+  read(){const value=STORE.get("te27-decider",{manual:[],frozen:{},odds:{},signals:{},filters:{maxSet3FavOdds:1.60,minSnapbackRecoveryPct:80,betterRankingRequired:true,betterSurfaceEloRequired:false}});value.watch ||= [];return value},
+  write(value){STORE.set("te27-decider",value)}
 };
-const deciderStore = () => STORE.get("te3-decider",{frozen:{},signals:{},filters:{maxSet3FavOdds:1.60,minSnapbackRecoveryPct:80,betterRankingRequired:true,betterSurfaceEloRequired:false}});
-const saveDecider = d => STORE.set("te3-decider",d);
-const deciderMatchId = m => String(m?.id ?? canonicalMatchKey(m));
-const rankFor = (m,index) => {
-  const player=m?.players?.[`p${index}`];
-  if(Number(player?.rank)>0) return Number(player.rank);
-  const list=STORE.get("te3-rankings",[]);
-  const hit=list.find(r=>(player?.id && String(r.id)===String(player.id)) || norm(r.name)===norm(player?.name));
-  return hit?.rank ?? null;
+const deciderId=m=>String(m?.id ?? canonicalMatchKey(m));
+const deciderOdds=(state,id)=>{
+  const o=state.odds[id]||{};
+  return {preMatchFavOdds:o.pre?.favouriteOdds,afterSet1FavOdds:o.after1?.favouriteOdds,
+    startSet3FavOdds:o.set3?.favouriteOdds,earlySet3FavOdds:o.early3?.favouriteOdds,
+    underdogOdds:o.set3?.underdogOdds};
 };
-async function refreshRankings(force=false){
-  const old=STORE.get("te3-rankings-updated",0);
-  if(!force && Date.now()-old<24*3600000) return;
-  try{const rows=await TennisDataProvider.rankings(getApiKey());if(rows.length){STORE.set("te3-rankings",rows);STORE.set("te3-rankings-updated",Date.now());}}
-  catch(err){setSourceError(`Rankings: ${err.message||String(err)}`);}
+const deciderMatches=()=>{
+  const state=DeciderStore.read(),all=new Map();
+  for(const m of [...state.manual,...(STORE.get("te2-upcoming-cache",null)?.data||[]),...(STORE.get("te2-live-cache",null)?.data||[])])all.set(deciderId(m),m);
+  return [...all.values()];
+};
+const deciderManual=m=>String(m?.id||"").startsWith("manual:");
+const deciderRank=(m,index)=>{
+  const state=DeciderStore.read(),f=state.frozen[deciderId(m)];
+  if(!f)return null;
+  if(f.ranks?.[index]!=null)return Number(f.ranks[index]);
+  const p=pObj(m,index);const rank=Number(p?.rank??p?.ranking);
+  return Number.isFinite(rank)&&rank>0?rank:null;
+};
+function deciderEdges(m,f){
+  const favRank=deciderRank(m,f.index),oppRank=deciderRank(m,3-f.index);
+  const surface=mSurface(m),a=playerMetrics(f.name,surface),b=playerMetrics(f.opponent,surface);
+  return {ranking:favRank!=null&&oppRank!=null?oppRank-favRank:null,surfaceElo:a&&b?a.surfElo-b.surfElo:null};
 }
-function freezeDecider(match,index,odds){
-  const id=deciderMatchId(match), d=deciderStore();
-  if(d.frozen[id]) return;
-  if(matchStartDate(match) && matchStartDate(match).getTime()<Date.now()) throw new Error("Pre-match favourite must be frozen before the scheduled start.");
-  const o=Decider.validOdds(odds);
-  if(!o) throw new Error("Enter valid decimal favourite odds above 1.00.");
-  const name=pName(match,index), opponent=pName(match,3-index);
-  OddsProvider.save(id,"pre",{favouriteOdds:o});
-  d.frozen[id]={id,index,name,opponent,playerA:pName(match,1),playerB:pName(match,2),tournament:tournamentName(match),
-    surface:mSurface(match),scheduled:matchStartRaw(match),frozenAt:Date.now(),source:"manual pre-match selection"};
-  saveDecider(d);renderDecider();
+function deciderFreeze(m,index,preOdds,ranks=null,source="manual"){
+  const state=DeciderStore.read(),id=deciderId(m);
+  if(state.frozen[id])throw new Error("Favourite already frozen for this match.");
+  if(!deciderManual(m)&&matchStartDate(m)&&matchStartDate(m)<new Date())throw new Error("This match has passed its scheduled start.");
+  const price=Decider.validOdds(preOdds);if(!price)throw new Error("Enter decimal odds above 1.00.");
+  state.frozen[id]={id,index,name:pName(m,index),opponent:pName(m,3-index),surface:mSurface(m),
+    tournament:tournamentName(m),frozenAt:Date.now(),ranks};
+  state.odds[id]={pre:{favouriteOdds:price,at:Date.now(),source}};
+  DeciderStore.write(state);deciderRender();
 }
-function rankAndElo(match,frozen){
-  const fr=rankFor(match,frozen.index), or=rankFor(match,3-frozen.index);
-  const f=playerMetrics(frozen.name,frozen.surface),o=playerMetrics(frozen.opponent,frozen.surface);
-  return {ranking:fr!=null && or!=null?or-fr:null,surfaceElo:f&&o?f.surfElo-o.surfElo:null,
-    favRank:fr,oppRank:or};
+function deciderSaveOdds(id,stage,favouriteOdds,underdogOdds=null,source="manual"){
+  const state=DeciderStore.read(),match=deciderMatches().find(m=>deciderId(m)===id),f=state.frozen[id];
+  if(!match||!f)throw new Error("Match not found.");
+  if(state.odds[id]?.[stage])throw new Error("This snapshot is already saved.");
+  const price=Decider.validOdds(favouriteOdds);if(!price)throw new Error("Enter valid decimal favourite odds.");
+  const phase=Decider.stage(match,f.index),set1=completedSet(match,0),set2=completedSet(match,1);
+  if(stage==="after1"&&!(set1?.winner===3-f.index&&!set2))throw new Error("After-Set-1 window has passed.");
+  if(stage==="set3"&&phase!=="DECIDER")throw new Error("Set 3 has not started.");
+  const dog=stage==="set3"?Decider.validOdds(underdogOdds):null;
+  if(stage==="set3"&&!dog)throw new Error("Enter valid underdog odds too.");
+  state.odds[id]={...(state.odds[id]||{}),[stage]:{favouriteOdds:price,underdogOdds:dog,at:Date.now(),source}};
+  DeciderStore.write(state);deciderScan([match]);
 }
-function scanDeciders(matches){
-  const d=deciderStore();let changed=false;
+function deciderScan(matches){
+  const state=DeciderStore.read();let changed=false;
   for(const m of matches){
-    const id=deciderMatchId(m),frozen=d.frozen[id];if(!frozen)continue;
-    const phase=Decider.stage(m,frozen.index);
-    const measures=rankAndElo(m,frozen);
-    const result=Decider.evaluate({match:m,frozen,snapshots:OddsProvider.snapshots(id),ranking:measures.ranking,
-      surfaceElo:measures.surfaceElo,filters:d.filters});
-    if(phase==="DECIDER" && !d.signals[id]){
-      const s=OddsProvider.snapshots(id);
-      d.signals[id]={id,favourite:frozen.name,underdog:frozen.opponent,tournament:frozen.tournament,surface:frozen.surface,
-        set2Score:(m.score?.games?.[0]?.[1] ?? "?")+"-"+(m.score?.games?.[1]?.[1] ?? "?"),
-        rankingDifference:measures.ranking,surfaceEloDifference:measures.surfaceElo,
-        favouriteOdds:s.startSet3FavOdds??null,underdogOdds:s.underdogOdds??null,
-        snapbackRecoveryPct:result.snapbackRecoveryPct??null,distanceFromOpenPct:result.distanceFromOpenPct??null,
-        snapbackBucket:Decider.bucket(result.snapbackRecoveryPct,[50,80,100]),
-        favouriteOddsBucket:Decider.bucket(s.startSet3FavOdds,[1.4,1.6,1.8,2]),
-        state:result.state,createdAt:Date.now(),result:null};
+    const id=deciderId(m),f=state.frozen[id];if(!f)continue;
+    const edges=deciderEdges(m,f),snapshots=deciderOdds(state,id);
+    const result=Decider.evaluate({match:m,frozen:f,snapshots,ranking:edges.ranking,surfaceElo:edges.surfaceElo,filters:state.filters});
+    if(Decider.stage(m,f.index)==="DECIDER"){
+      if(!state.signals[id]){
+        state.signals[id]={id,favourite:f.name,underdog:f.opponent,tournament:f.tournament,surface:f.surface,
+          set2Score:`${scoreObj(m).games?.[0]?.[1]??"?"}-${scoreObj(m).games?.[1]?.[1]??"?"}`,
+          rankingDifference:edges.ranking,surfaceEloDifference:edges.surfaceElo,
+          createdAt:Date.now(),result:null};
+        if("Notification" in window&&Notification.permission==="granted")new Notification("Tennis Edge: Set 3",{body:`${f.name} won Set 2. Decider setup flagged.`});
+      }
+      const signal=state.signals[id];
+      if(signal.result==null){
+        Object.assign(signal,{state:result.state,snapbackRecoveryPct:result.snapbackRecoveryPct??null,
+          distanceFromOpenPct:result.distanceFromOpenPct??null,favouriteOdds:snapshots.startSet3FavOdds??null,
+          underdogOdds:snapshots.underdogOdds??null,
+          snapbackBucket:Decider.bucket(result.snapbackRecoveryPct,[50,80,100]),
+          favouriteOddsBucket:Decider.bucket(snapshots.startSet3FavOdds,[1.4,1.6,1.8,2])});
+      }
       changed=true;
-      if("Notification" in window && Notification.permission==="granted")
-        new Notification("Tennis Edge: deciding set",{body:`${frozen.name} won Set 2. ${result.state}.`});
-    }else if(d.signals[id] && d.signals[id].result==null){
-      d.signals[id].state=result.state;changed=true;
     }
   }
-  if(changed)saveDecider(d);
-  renderDecider();
+  if(changed)DeciderStore.write(state);
+  deciderRender();
 }
-function gradeDeciders(completed){
-  const d=deciderStore();let changed=false;
-  for(const m of completed){
-    const id=deciderMatchId(m),s=d.signals[id];if(!s||s.result)continue;
-    const winner=m?.winner?.name;if(!winner)continue;
-    s.result=norm(winner)===norm(s.underdog)?"win":"loss";
-    s.winner=winner;s.state="COMPLETED";s.gradedAt=Date.now();changed=true;
+function deciderGrade(matches){
+  const state=DeciderStore.read();let changed=false;
+  for(const m of matches){
+    const signal=state.signals[deciderId(m)];if(!signal||signal.result)continue;
+    const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name;
+    if(!winner)continue;
+    signal.result=norm(winner)===norm(signal.underdog)?"win":"loss";
+    signal.winner=winner;signal.state="COMPLETED";signal.gradedAt=Date.now();changed=true;
   }
-  if(changed)saveDecider(d);
-  renderDecider();
+  if(changed)DeciderStore.write(state);
+  deciderRender();
 }
-const fmt = n => n==null || !Number.isFinite(n)?"—":Number(n).toFixed(1);
-function renderDecider(){
-  const d=deciderStore(),byId=new Map();
-  for(const m of [...(STORE.get("te3-upcoming-cache",null)?.data||[]),...(STORE.get("te3-live-cache",null)?.data||[])])byId.set(deciderMatchId(m),m);
-  const matches=[...byId.values()];
-  const stats=Decider.summary(Object.values(d.signals));
-  for(const [id,value] of Object.entries({deciderSignals:stats.signals,deciderRecord:`${stats.wins}-${stats.losses}`,
-    deciderHitRate:stats.hitRate==null?"—":`${fmt(stats.hitRate)}%`,deciderAvgOdds:fmt(stats.averageUnderdogOdds),
-    deciderProfit:stats.unitsProfit==null?"—":`${fmt(stats.unitsProfit)}u`,deciderRoi:stats.roi==null?"—":`${fmt(stats.roi)}%`})){
-    if($(id))$(id).textContent=value;
-  }
-  const board=$("deciderBoard");if(!board)return;
-  board.innerHTML=matches.length?matches.map(m=>{
-    const id=deciderMatchId(m),f=d.frozen[id],s=OddsProvider.get(id),phase=f?Decider.stage(m,f.index):"NONE";
-    const live=(STORE.get("te3-live-cache",null)?.data||[]).some(x=>deciderMatchId(x)===id);
-    const measures=f?rankAndElo(m,f):null;
-    const verdict=f?Decider.evaluate({match:m,frozen:f,snapshots:OddsProvider.snapshots(id),ranking:measures.ranking,surfaceElo:measures.surfaceElo,filters:d.filters}):null;
-    let actions="";
-    if(!f && !live) actions=`<div class="decider-inputs"><select data-role="fav" aria-label="Original favourite"><option value="1">${esc(pName(m,1))}</option><option value="2">${esc(pName(m,2))}</option></select><input data-role="pre" type="number" step="0.01" min="1.01" placeholder="Pre-match favourite odds"><button class="small-btn decider-freeze" data-id="${esc(id)}">Freeze favourite</button></div>`;
-    const first=completedSet(m,0),second=completedSet(m,1);
-    const afterFirstWindow=!!f && first?.winner===3-f.index && !second;
-    const thirdGames=(Number(m.score?.games?.[0]?.[2])||0)+(Number(m.score?.games?.[1]?.[2])||0);
-    if(f && live && afterFirstWindow && !s.afterSet1) actions=`<div class="decider-inputs"><input data-role="after1" type="number" step="0.01" min="1.01" placeholder="Favourite odds after Set 1"><button class="small-btn decider-after1" data-id="${esc(id)}">Save Set 1 price</button></div>`;
-    if(f && live && phase==="DECIDER" && thirdGames<=1 && !s.startSet3) actions=`<div class="decider-inputs"><input data-role="set3fav" type="number" step="0.01" min="1.01" placeholder="Set 3 favourite odds"><input data-role="set3dog" type="number" step="0.01" min="1.01" placeholder="Set 3 underdog odds"><button class="small-btn decider-set3" data-id="${esc(id)}">Save Set 3 prices</button></div>`;
-    if(f && live && phase==="DECIDER" && thirdGames>0 && (s.startSet3 || thirdGames>1) && !s.earlySet3) actions=`<div class="decider-inputs"><input data-role="early3" type="number" step="0.01" min="1.01" placeholder="Optional early Set 3 favourite odds"><button class="small-btn decider-early3" data-id="${esc(id)}">Save early price</button></div>`;
-    return `<div class="match-card decider-card" data-match="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(live?scoreText(m):formatMatchTime(m))}</div></div><span class="badge ${verdict?.state==="STRONG"?"strong":verdict?.state==="PASS"?"pass":"watch"}">${esc(verdict?.state||"PRE-MATCH")}</span></div><p class="muted small">${esc(verdict?.reason||"Freeze the original favourite before play.")}</p>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${measures?.ranking??"?"} · surface Elo edge ${measures?.surfaceElo??"?"} · snapback ${fmt(verdict?.snapbackRecoveryPct)}% · distance from open ${fmt(verdict?.distanceFromOpenPct)}%</div>`:""}${actions}</div>`;
-  }).join(""):'<div class="empty card">Load WTA matches to scan deciding-set setups.</div>';
-  const log=$("deciderLog");
-  log.innerHTML=Object.values(d.signals).sort((a,b)=>b.createdAt-a.createdAt).map(s=>`<div class="match-card"><div class="match-top"><div><div class="match-title">${esc(s.favourite)} vs ${esc(s.underdog)}</div><div class="match-meta">${esc(s.tournament)} · ${esc(s.surface)} · Set 2 ${esc(s.set2Score)} · rank edge ${s.rankingDifference??"?"} · surface Elo edge ${s.surfaceEloDifference??"?"}</div></div><span class="badge ${s.result==="win"?"strong":s.result==="loss"?"pass":"watch"}">${esc(s.state)}</span></div><div class="match-meta">Snapback ${fmt(s.snapbackRecoveryPct)}% (${esc(s.snapbackBucket)}) · favourite odds ${s.favouriteOdds??"?"} (${esc(s.favouriteOddsBucket)}) · underdog odds ${s.underdogOdds??"?"} · ${s.result||"pending"}</div></div>`).join("")||'<div class="empty card">No deciding-set signals recorded yet.</div>';
+function deciderManualWinner(m){
+  const g=scoreObj(m).games,a=Number(g?.[0]?.[2]),b=Number(g?.[1]?.[2]);
+  if(g?.[0]?.[2]==null||g?.[1]?.[2]==null)return null;
+  if(!((Math.max(a,b)>=6&&Math.abs(a-b)>=2)||(Math.max(a,b)===7&&Math.min(a,b)===6)))return null;
+  return pName(m,a>b?1:2);
 }
+const deciderFmt=n=>n==null||!Number.isFinite(n)?"—":Number(n).toFixed(1);
+function deciderRender(){
+  const state=DeciderStore.read(),signals=Object.values(state.signals),stats=Decider.summary(signals);
+  const summary={deciderSignals:stats.signals,deciderRecord:`${stats.wins}-${stats.losses}`,
+    deciderHitRate:stats.hitRate==null?"—":`${deciderFmt(stats.hitRate)}%`,
+    deciderAvgOdds:deciderFmt(stats.averageUnderdogOdds),
+    deciderProfit:stats.unitsProfit==null?"—":`${deciderFmt(stats.unitsProfit)}u`,
+    deciderRoi:stats.roi==null?"—":`${deciderFmt(stats.roi)}%`};
+  for(const [id,value] of Object.entries(summary))$(id).textContent=value;
+  const matches=deciderMatches();
+  $("deciderBoard").innerHTML=matches.length?matches.map(m=>{
+    const id=deciderId(m),f=state.frozen[id],manual=deciderManual(m),s=state.odds[id]||{};
+    const phase=f?Decider.stage(m,f.index):"NONE",edges=f?deciderEdges(m,f):null;
+    const verdict=f?Decider.evaluate({match:m,frozen:f,snapshots:deciderOdds(state,id),ranking:edges.ranking,
+      surfaceElo:edges.surfaceElo,filters:state.filters}):null;
+    const set1=f?completedSet(m,0):null,set2=f?completedSet(m,1):null;
+    let action="";
+    if(!f&&!manual){
+      const isLive=(STORE.get("te2-live-cache",null)?.data||[]).some(x=>deciderId(x)===id);
+      action=isLive?'<p class="muted small">The original pre-match favourite was not frozen before play.</p>':
+        window.rapidMode?`<button class="small-btn" data-action="watch">Watch automatically</button>`:
+        `<div class="decider-inputs"><select data-role="fav"><option value="1">${esc(pName(m,1))}</option><option value="2">${esc(pName(m,2))}</option></select><input data-role="pre" type="number" step="0.01" min="1.01" placeholder="Pre-match favourite odds"><button class="small-btn" data-action="freeze">Freeze favourite</button></div>`;
+    }
+    if(f&&set1?.winner===3-f.index&&!set2&&!s.after1)action=window.rapidMode?'<p class="muted small">Waiting for automatic Set 1 price…</p>':`<div class="decider-inputs"><input data-role="after1" type="number" step="0.01" min="1.01" placeholder="Favourite odds after Set 1"><button class="small-btn" data-action="after1">Save Set 1 price</button></div>`;
+    if(f&&phase==="DECIDER"&&!s.set3)action=window.rapidMode?'<p class="muted small">Waiting for automatic Set 3 price…</p>':`<div class="decider-inputs"><input data-role="set3fav" type="number" step="0.01" min="1.01" placeholder="Favourite odds at Set 3 start"><input data-role="set3dog" type="number" step="0.01" min="1.01" placeholder="Underdog odds at Set 3 start"><button class="small-btn" data-action="set3">Save Set 3 prices</button></div>`;
+    if(f&&phase==="DECIDER"&&s.set3&&!s.early3&&!window.rapidMode)action=`<div class="decider-inputs"><input data-role="early3" type="number" step="0.01" min="1.01" placeholder="Optional early Set 3 favourite odds"><button class="small-btn" data-action="early3">Save early price</button></div>`;
+    const games=scoreObj(m).games;
+    const scoreInputs=manual?`<div class="decider-score-grid">${[0,1,2].map(i=>`<div class="decider-set"><span>Set ${i+1}</span><input data-score="a${i}" type="number" min="0" max="30" placeholder="A" value="${games?.[0]?.[i]??""}"><input data-score="b${i}" type="number" min="0" max="30" placeholder="B" value="${games?.[1]?.[i]??""}"></div>`).join("")}</div><button class="small-btn" data-action="score">Save score</button>`:"";
+    const label=f&&m.status==="upcoming"?"WATCHING":verdict?.state||"PRE-MATCH";
+    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="PASS"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div><p class="muted small">${esc(verdict?.reason||"")}</p>`:""}${scoreInputs}${action}</div>`;
+  }).join(""):'<div class="empty card">Add a match above, or load the Live board.</div>';
+  $("deciderLog").innerHTML=signals.sort((a,b)=>b.createdAt-a.createdAt).map(s=>`<div class="match-card"><div class="match-top"><div><div class="match-title">${esc(s.favourite)} vs ${esc(s.underdog)}</div><div class="match-meta">${esc(s.tournament)} · ${esc(s.surface)} · Set 2 ${esc(s.set2Score)} · rank edge ${s.rankingDifference??"?"} · surface Elo edge ${s.surfaceEloDifference??"?"}</div></div><span class="badge ${s.result==="win"?"strong":s.result==="loss"?"pass":"watch"}">${esc(s.state)}</span></div><div class="match-meta">Snapback ${deciderFmt(s.snapbackRecoveryPct)}% (${esc(s.snapbackBucket)}) · favourite odds ${s.favouriteOdds??"?"} (${esc(s.favouriteOddsBucket)}) · underdog odds ${s.underdogOdds??"?"} · ${s.result||"pending"}</div></div>`).join("")||'<div class="empty card">No signals yet.</div>';
+}
+$("manualDeciderForm").onsubmit=e=>{
+  e.preventDefault();
+  const a=$("manualA").value.trim(),b=$("manualB").value.trim(),index=Number($("manualFavourite").value);
+  if(!a||!b||norm(a)===norm(b))return alert("Enter two different players.");
+  const m={id:`manual:${Date.now()}:${Math.random().toString(36).slice(2,7)}`,players:{p1:{name:a},p2:{name:b}},
+    tournament:$("manualTournament").value.trim()||"WTA",surface:$("manualSurface").value,score:{games:[[],[]],points:[null,null],server:null},status:"upcoming"};
+  const rank=v=>v===""?null:Number(v);
+  const ranks={1:index===1?rank($("manualFavRank").value):rank($("manualOppRank").value),
+    2:index===2?rank($("manualFavRank").value):rank($("manualOppRank").value)};
+  try{const state=DeciderStore.read();state.manual.unshift(m);DeciderStore.write(state);deciderFreeze(m,index,$("manualPreOdds").value,ranks);e.target.reset();}
+  catch(err){alert(err.message||String(err));}
+};
 $("deciderBoard").onclick=e=>{
-  const button=e.target.closest("button[data-id]");if(!button)return;
-  const card=button.closest(".decider-card"),id=button.dataset.id;
-  const match=[...(STORE.get("te3-upcoming-cache",null)?.data||[]),...(STORE.get("te3-live-cache",null)?.data||[])].find(m=>deciderMatchId(m)===id);
-  if(!match)return;
+  const btn=e.target.closest("button[data-action]");if(!btn)return;
+  const card=btn.closest(".decider-card"),id=card.dataset.id,m=deciderMatches().find(x=>deciderId(x)===id);
+  if(!m)return;
   const value=role=>card.querySelector(`[data-role="${role}"]`)?.value;
   try{
-    if(button.classList.contains("decider-freeze")) freezeDecider(match,Number(value("fav")),value("pre"));
-    else if(button.classList.contains("decider-after1")) {const odds=Decider.validOdds(value("after1"));if(!odds)throw new Error("Enter valid decimal odds.");OddsProvider.save(id,"afterSet1",{favouriteOdds:odds});scanDeciders([match]);}
-    else if(button.classList.contains("decider-set3")) {const fav=Decider.validOdds(value("set3fav")),dog=Decider.validOdds(value("set3dog"));if(!fav||!dog)throw new Error("Enter both valid decimal prices.");OddsProvider.save(id,"startSet3",{favouriteOdds:fav,underdogOdds:dog});scanDeciders([match]);}
-    else if(button.classList.contains("decider-early3")) {const odds=Decider.validOdds(value("early3"));if(!odds)throw new Error("Enter valid decimal odds.");OddsProvider.save(id,"earlySet3",{favouriteOdds:odds});renderDecider();}
+    if(btn.dataset.action==="freeze")deciderFreeze(m,Number(value("fav")),value("pre"));
+    if(btn.dataset.action==="watch" && typeof window.rapidWatch==="function")window.rapidWatch(m).catch(err=>alert(err.message||String(err)));
+    if(btn.dataset.action==="after1")deciderSaveOdds(id,"after1",value("after1"));
+    if(btn.dataset.action==="set3")deciderSaveOdds(id,"set3",value("set3fav"),value("set3dog"));
+    if(btn.dataset.action==="early3")deciderSaveOdds(id,"early3",value("early3"));
+    if(btn.dataset.action==="score"){
+      const state=DeciderStore.read(),target=state.manual.find(x=>deciderId(x)===id);
+      if(!target)throw new Error("Manual match not found.");
+      const val=(side,i)=>{const raw=card.querySelector(`[data-score="${side}${i}"]`).value;return raw===""?null:Number(raw)};
+      target.score={games:[[0,1,2].map(i=>val("a",i)),[0,1,2].map(i=>val("b",i))],points:[null,null],server:null};
+      target.status="live";const winner=deciderManualWinner(target);
+      if(winner){target.winner={name:winner};target.status="completed";}
+      DeciderStore.write(state);deciderScan([target]);if(winner)deciderGrade([target]);
+    }
   }catch(err){alert(err.message||String(err));}
 };
 $("saveDeciderFilters").onclick=()=>{
-  const d=deciderStore();
-  d.filters={maxSet3FavOdds:Number($("maxSet3Odds").value),minSnapbackRecoveryPct:Number($("minSnapback").value),
-    betterRankingRequired:$("betterRanking").checked,betterSurfaceEloRequired:$("betterSurfaceElo").checked};
-  if(!Number.isFinite(d.filters.maxSet3FavOdds)||d.filters.maxSet3FavOdds<=1||!Number.isFinite(d.filters.minSnapbackRecoveryPct))return alert("Enter valid filter values.");
-  saveDecider(d);scanDeciders(STORE.get("te3-live-cache",null)?.data||[]);
+  const state=DeciderStore.read(),max=Number($("maxSet3Odds").value),min=Number($("minSnapback").value);
+  if(!Number.isFinite(max)||max<=1||!Number.isFinite(min)||min<0)return alert("Enter valid filters.");
+  state.filters={maxSet3FavOdds:max,minSnapbackRecoveryPct:min,betterRankingRequired:$("betterRanking").checked,
+    betterSurfaceEloRequired:$("betterSurfaceElo").checked};
+  DeciderStore.write(state);deciderScan(deciderMatches());
 };
-$("maxSet3Odds").value=deciderStore().filters.maxSet3FavOdds;
-$("minSnapback").value=deciderStore().filters.minSnapbackRecoveryPct;
-$("betterRanking").checked=deciderStore().filters.betterRankingRequired;
-$("betterSurfaceElo").checked=deciderStore().filters.betterSurfaceEloRequired;
-renderDecider();
+const initialDecider=DeciderStore.read().filters;
+$("maxSet3Odds").value=initialDecider.maxSet3FavOdds;
+$("minSnapback").value=initialDecider.minSnapbackRecoveryPct;
+$("betterRanking").checked=initialDecider.betterRankingRequired;
+$("betterSurfaceElo").checked=initialDecider.betterSurfaceEloRequired;
+deciderRender();
