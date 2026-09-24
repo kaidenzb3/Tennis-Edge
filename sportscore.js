@@ -1,6 +1,7 @@
 /* SportScore adapter. All requests go through the configured proxy so the RapidAPI key is never shipped to browsers. */
 const SportScore=(()=>{
-  const proxy=()=>String(localStorage.getItem("te-sportscore-proxy")||"").trim().replace(/\/$/,"");
+  const DEFAULT_PROXY="https://tennis-edge-api.kaidenzb3.workers.dev";
+  const proxy=()=>String(localStorage.getItem("te-sportscore-proxy")||DEFAULT_PROXY).trim().replace(/\/$/,"");
   const req=async(action,params={})=>{
     if(!proxy())throw new Error("Add the SportScore proxy address in Settings.");
     const u=new URL(proxy());u.searchParams.set("action",action);
