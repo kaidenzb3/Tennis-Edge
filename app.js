@@ -84,6 +84,13 @@ const PlayerDB = {
         out.add(this.key(last+", "+parts.slice(0,-1).join(" ")));
         out.add(this.key(first[0]+". "+last));
         out.add(this.key(first[0]+" "+last));
+        // SportScore commonly returns tennis names as "Surname F.".
+        // Add the equivalent "F. Surname" forms used by the history data.
+        if(/^[A-Za-zÀ-ÿ]['’-]?[A-Za-zÀ-ÿ-]+$/.test(first) && /^[A-Za-zÀ-ÿ]\.?$/.test(last)){
+          const initial=last.replace(".","");
+          out.add(this.key(initial+". "+first));
+          out.add(this.key(initial+" "+first));
+        }
       }
     }
     return [...out];
