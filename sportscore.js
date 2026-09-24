@@ -14,7 +14,8 @@ const SportScore=(()=>{
   const rows=j=>Array.isArray(j)?j:Array.isArray(j?.data)?j.data:[];
   const text=e=>[e?.section?.name,e?.section?.slug,e?.league?.name,e?.league?.slug,e?.challenge?.name,e?.season?.name].filter(Boolean).join(" ");
   const singles=e=>!/[\/]|doubles/i.test(`${e?.home_team?.name||""} ${e?.away_team?.name||""} ${text(e)}`);
-  const wta=e=>singles(e)&&(/\bwta\b/i.test(text(e))||(e?.home_team?.gender==="F"&&e?.away_team?.gender==="F"&&!/itf/i.test(text(e))));
+  const excluded=e=>/\butr\b|\bitf\b|billie jean king|fed cup|college|ncaa/i.test(text(e));
+  const wta=e=>singles(e)&&!excluded(e)&&(/\bwta\b/i.test(text(e))||(e?.home_team?.gender==="F"&&e?.away_team?.gender==="F"));
   const surface=s=>/clay/i.test(s)?"Clay":/grass/i.test(s)?"Grass":/carpet/i.test(s)?"Carpet":"Hard";
   const score=e=>{
     const h=e?.home_score||{},a=e?.away_score||{},hg=[],ag=[];

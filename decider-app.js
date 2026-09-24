@@ -12,7 +12,10 @@ const deciderOdds=(state,id)=>{
 };
 const deciderMatches=()=>{
   const state=DeciderStore.read(),all=new Map();
-  for(const m of [...state.manual,...(STORE.get("te2-upcoming-cache",null)?.data||[]),...(STORE.get("te2-live-cache",null)?.data||[])])all.set(deciderId(m),m);
+  for(const m of [...state.manual,...(STORE.get("te2-upcoming-cache",null)?.data||[]),...(STORE.get("te2-live-cache",null)?.data||[])]){
+    if(!deciderManual(m)&&typeof SportScore!=="undefined"&&!SportScore.wta(m._sportscore||m))continue;
+    all.set(deciderId(m),m);
+  }
   return [...all.values()];
 };
 const deciderManual=m=>String(m?.id||"").startsWith("manual:");
@@ -137,6 +140,18 @@ function deciderAutoFor(m){
   if(completedSet(m,0)?.winner===3-f.index&&!completedSet(m,1)&&!s.after1)deciderAutoOdds(m,"after1");
   if(phase==="DECIDER"&&!s.set3)deciderAutoOdds(m,"set3");
 }
+function deciderPrematchCandidate(m,f,edges,s){
+  const fav=playerMetrics(f.name,mSurface(m)),opp=playerMetrics(f.opponent,mSurface(m));
+  const overall=fav&&opp?fav.elo-opp.elo:null;
+  const form=fav&&opp&&fav.played10&&opp.played10?(fav.last10/fav.played10)-(opp.last10/opp.played10):null;
+  const price=Number(s?.pre?.favouriteOdds);
+  const signals=[Number.isFinite(price)&&price<=1.80,overall!=null&&overall>0,edges.surfaceElo!=null&&edges.surfaceElo>0,form!=null&&form>=0];
+  if(edges.ranking!=null)signals.push(edges.ranking>0);
+  const score=signals.filter(Boolean).length,needed=edges.ranking==null?3:4;
+  if(score>=needed)return {label:"GOOD CANDIDATE",reason:"Pre-match profile is worth monitoring if the favourite loses Set 1."};
+  if(score>=2)return {label:"WATCHLIST",reason:"Some pre-match indicators fit. Wait for the Set 1 and Set 2 pattern."};
+  return {label:"LOW PRIORITY",reason:"The available pre-match indicators are weaker for this research setup."};
+}
 function deciderRender(){
   const state=DeciderStore.read(),signals=Object.values(state.signals),stats=Decider.summary(signals);
   const summary={deciderSignals:stats.signals,deciderRecord:`${stats.wins}-${stats.losses}`,
@@ -164,11 +179,15 @@ function deciderRender(){
     if(f&&phase==="DECIDER"&&s.set3&&!s.early3&&!window.rapidMode)action=`<div class="decider-inputs"><input data-role="early3" type="number" step="0.01" min="1.01" placeholder="Optional early Set 3 favourite odds"><button class="small-btn" data-action="early3">Save early price</button></div>`;
     const games=scoreObj(m).games;
     const scoreInputs=manual?`<div class="decider-score-grid">${[0,1,2].map(i=>`<div class="decider-set"><span>Set ${i+1}</span><input data-score="a${i}" type="number" min="0" max="30" placeholder="A" value="${games?.[0]?.[i]??""}"><input data-score="b${i}" type="number" min="0" max="30" placeholder="B" value="${games?.[1]?.[i]??""}"></div>`).join("")}</div><button class="small-btn" data-action="score">Save score</button>`:"";
-    const label=f&&m.status==="upcoming"?"WATCHING":verdict?.state||"PRE-MATCH";
     const profile=f?playerMetrics(f.name,mSurface(m)):null;
     const opponent=f?playerMetrics(f.opponent,mSurface(m)):null;
+    const prematch=f&&m.status==="upcoming"?deciderPrematchCandidate(m,f,edges,s):null;
+    const label=prematch?.label||verdict?.state||"PRE-MATCH";
+    const reason=prematch?.reason||verdict?.reason||"";
+    const p1Odds=Number(m?.main_odds?.outcome_1?.value),p2Odds=Number(m?.main_odds?.outcome_2?.value);
+    const oddsText=p1Odds>1&&p2Odds>1?`${pName(m,1)} ${p1Odds.toFixed(2)} · ${pName(m,2)} ${p2Odds.toFixed(2)}`:`Favourite opening odds ${Number(s?.pre?.favouriteOdds)>1?Number(s.pre.favouriteOdds).toFixed(2):"unavailable"}`;
     const profileText=f?`<div class="match-meta">${esc(f.name)}: Elo ${profile?.elo??"?"}, surface Elo ${profile?.surfElo??"?"}, last 10 ${profile?`${profile.last10}/${profile.played10}`:"?"} · ${esc(f.opponent)}: Elo ${opponent?.elo??"?"}, surface Elo ${opponent?.surfElo??"?"}, last 10 ${opponent?`${opponent.last10}/${opponent.played10}`:"?"}</div>`:"";
-    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="PASS"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div>${profileText}<p class="muted small">${esc(verdict?.reason||"")}</p>`:""}${scoreInputs}${action}</div>`;
+    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="GOOD CANDIDATE"?"good":label==="PASS"||label==="LOW PRIORITY"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta"><strong>Opening odds:</strong> ${esc(oddsText)}</div><div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div>${profileText}<p class="muted small">${esc(reason)}</p>`:""}${scoreInputs}${action}</div>`;
   }).join(""):'<div class="empty card">Add a match above, or load the Live board.</div>';
   $("deciderLog").innerHTML=signals.sort((a,b)=>b.createdAt-a.createdAt).map(s=>`<div class="match-card"><div class="match-top"><div><div class="match-title">${esc(s.favourite)} vs ${esc(s.underdog)}</div><div class="match-meta">${esc(s.tournament)} · ${esc(s.surface)} · Set 2 ${esc(s.set2Score)} · rank edge ${s.rankingDifference??"?"} · surface Elo edge ${s.surfaceEloDifference??"?"}</div></div><span class="badge ${s.result==="win"?"strong":s.result==="loss"?"pass":"watch"}">${esc(s.state)}</span></div><div class="match-meta">Snapback ${deciderFmt(s.snapbackRecoveryPct)}% (${esc(s.snapbackBucket)}) · favourite odds ${s.favouriteOdds??"?"} (${esc(s.favouriteOddsBucket)}) · underdog odds ${s.underdogOdds??"?"} · ${s.result||"pending"}</div></div>`).join("")||'<div class="empty card">No signals yet.</div>';
 }
