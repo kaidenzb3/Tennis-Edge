@@ -152,6 +152,12 @@ function deciderPrematchCandidate(m,f,edges,s){
   if(score>=2)return {label:"WATCHLIST",reason:"Some pre-match indicators fit. Wait for the Set 1 and Set 2 pattern."};
   return {label:"LOW PRIORITY",reason:"The available pre-match indicators are weaker for this research setup."};
 }
+function deciderModelCandidate(m){
+  const model=prematchModel(pName(m,1),pName(m,2),mSurface(m));
+  if(model.error)return {label:"LOW PRIORITY",reason:"No reliable Elo comparison is available for both players."};
+  if(model.grade>=settings.good)return {label:"GOOD CANDIDATE",reason:`${model.fav.name} leads the pre-match Elo model (${model.grade}). Opening odds are still needed to freeze the true market favourite.`};
+  return {label:"WATCHLIST",reason:`Pre-match Elo grade ${model.grade}. Wait for opening odds and the Set 1 loss → Set 2 recovery pattern.`};
+}
 function deciderRender(){
   const state=DeciderStore.read(),signals=Object.values(state.signals),stats=Decider.summary(signals);
   const summary={deciderSignals:stats.signals,deciderRecord:`${stats.wins}-${stats.losses}`,
@@ -170,8 +176,9 @@ function deciderRender(){
     let action="";
     if(!f&&!manual){
       const isLive=(STORE.get("te2-live-cache",null)?.data||[]).some(x=>deciderId(x)===id);
+      const quote=sportScorePreOdds(m);
       action=isLive?'<p class="muted small">The original pre-match favourite was not frozen before play.</p>':
-        window.rapidMode?`<button class="small-btn" data-action="watch">Watch automatically</button>`:
+        window.rapidMode?(quote?`<button class="small-btn" data-action="watch">Watch automatically</button>`:'<p class="muted small">Waiting for verified opening odds before freezing the market favourite.</p>'):
         `<div class="decider-inputs"><select data-role="fav"><option value="1">${esc(pName(m,1))}</option><option value="2">${esc(pName(m,2))}</option></select><input data-role="pre" type="number" step="0.01" min="1.01" placeholder="Pre-match favourite odds"><button class="small-btn" data-action="freeze">Freeze favourite</button></div>`;
     }
     if(f&&set1?.winner===3-f.index&&!set2&&!s.after1)action=window.rapidMode?'<p class="muted small">Waiting for automatic Set 1 price…</p>':`<div class="decider-inputs"><input data-role="after1" type="number" step="0.01" min="1.01" placeholder="Favourite odds after Set 1"><button class="small-btn" data-action="after1">Save Set 1 price</button></div>`;
@@ -181,13 +188,13 @@ function deciderRender(){
     const scoreInputs=manual?`<div class="decider-score-grid">${[0,1,2].map(i=>`<div class="decider-set"><span>Set ${i+1}</span><input data-score="a${i}" type="number" min="0" max="30" placeholder="A" value="${games?.[0]?.[i]??""}"><input data-score="b${i}" type="number" min="0" max="30" placeholder="B" value="${games?.[1]?.[i]??""}"></div>`).join("")}</div><button class="small-btn" data-action="score">Save score</button>`:"";
     const profile=f?playerMetrics(f.name,mSurface(m)):null;
     const opponent=f?playerMetrics(f.opponent,mSurface(m)):null;
-    const prematch=f&&m.status==="upcoming"?deciderPrematchCandidate(m,f,edges,s):null;
+    const prematch=m.status==="upcoming"?(f?deciderPrematchCandidate(m,f,edges,s):deciderModelCandidate(m)):null;
     const label=prematch?.label||verdict?.state||"PRE-MATCH";
     const reason=prematch?.reason||verdict?.reason||"";
     const p1Odds=Number(m?.main_odds?.outcome_1?.value),p2Odds=Number(m?.main_odds?.outcome_2?.value);
     const oddsText=p1Odds>1&&p2Odds>1?`${pName(m,1)} ${p1Odds.toFixed(2)} · ${pName(m,2)} ${p2Odds.toFixed(2)}`:`Favourite opening odds ${Number(s?.pre?.favouriteOdds)>1?Number(s.pre.favouriteOdds).toFixed(2):"unavailable"}`;
     const profileText=f?`<div class="match-meta">${esc(f.name)}: Elo ${profile?.elo??"?"}, surface Elo ${profile?.surfElo??"?"}, last 10 ${profile?`${profile.last10}/${profile.played10}`:"?"} · ${esc(f.opponent)}: Elo ${opponent?.elo??"?"}, surface Elo ${opponent?.surfElo??"?"}, last 10 ${opponent?`${opponent.last10}/${opponent.played10}`:"?"}</div>`:"";
-    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="GOOD CANDIDATE"?"good":label==="PASS"||label==="LOW PRIORITY"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div>${f?`<div class="match-meta"><strong>Opening odds:</strong> ${esc(oddsText)}</div><div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div>${profileText}<p class="muted small">${esc(reason)}</p>`:""}${scoreInputs}${action}</div>`;
+    return `<div class="match-card decider-card" data-id="${esc(id)}"><div class="match-top"><div><div class="match-title">${esc(pName(m,1))} vs ${esc(pName(m,2))}</div><div class="match-meta">${esc(tournamentName(m))} · ${esc(mSurface(m))} · ${esc(manual?"Manual match":formatMatchTime(m))}</div></div><span class="badge ${label==="STRONG"?"strong":label==="GOOD CANDIDATE"?"good":label==="PASS"||label==="LOW PRIORITY"?"pass":"watch"}">${esc(label)}</span></div><div class="scoreline">${esc(scoreText(m)||"No score yet")}</div><div class="match-meta"><strong>Opening odds:</strong> ${esc(oddsText)}</div>${f?`<div class="match-meta">Frozen favourite: ${esc(f.name)} · rank edge ${edges.ranking??"?"} · surface Elo edge ${edges.surfaceElo??"?"} · snapback ${deciderFmt(verdict?.snapbackRecoveryPct)}% · distance from open ${deciderFmt(verdict?.distanceFromOpenPct)}%</div>${profileText}`:""}<p class="muted small">${esc(reason)}</p>${scoreInputs}${action}</div>`;
   }).join(""):'<div class="empty card">Add a match above, or load the Live board.</div>';
   $("deciderLog").innerHTML=signals.sort((a,b)=>b.createdAt-a.createdAt).map(s=>`<div class="match-card"><div class="match-top"><div><div class="match-title">${esc(s.favourite)} vs ${esc(s.underdog)}</div><div class="match-meta">${esc(s.tournament)} · ${esc(s.surface)} · Set 2 ${esc(s.set2Score)} · rank edge ${s.rankingDifference??"?"} · surface Elo edge ${s.surfaceEloDifference??"?"}</div></div><span class="badge ${s.result==="win"?"strong":s.result==="loss"?"pass":"watch"}">${esc(s.state)}</span></div><div class="match-meta">Snapback ${deciderFmt(s.snapbackRecoveryPct)}% (${esc(s.snapbackBucket)}) · favourite odds ${s.favouriteOdds??"?"} (${esc(s.favouriteOddsBucket)}) · underdog odds ${s.underdogOdds??"?"} · ${s.result||"pending"}</div></div>`).join("")||'<div class="empty card">No signals yet.</div>';
 }
