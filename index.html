@@ -17,7 +17,7 @@
   <header class="topbar">
     <div>
       <div class="eyebrow">WTA DECISION ENGINE</div>
-      <h1>Tennis Edge <span class="v">v2.6</span></h1>
+      <h1>Tennis Edge <span class="v">v3.0</span></h1>
     </div>
     <div class="top-actions">
       <span id="apiDot" class="status-dot off" title="Live API status"></span>
@@ -42,7 +42,7 @@
       <div id="apiBanner" class="banner">
         <div>
           <strong>Connect free live scores</strong>
-          <span>Add a Live Tennis API free key in Settings. The key stays on your device.</span>
+          <span>Add your secure SportScore connection in Settings.</span>
         </div>
         <button class="small-btn" data-view-jump="settings">Set up</button>
       </div>
@@ -301,7 +301,7 @@
     <section id="view-decider" class="view">
       <div class="section-head"><div><h3>Decider Strategy</h3><p>Favourite loses Set 1, wins Set 2. Watch the underdog at the start of Set 3.</p></div></div>
       <div class="card"><p class="muted small">Add a match before play. Tennis Edge can look up match-winner odds and save prices as you update sets. Historical Elo and recent form load from the free history sync. Live serve and break-point stats still need a working live-stat feed.</p></div>
-      <div class="card form-card"><h4>Automatic odds</h4><label>The Odds API key<input id="oddsApiKey" type="password" autocomplete="off" placeholder="Paste your key on this device"></label><div class="button-row"><button id="saveOddsKey" class="primary-btn" type="button">Save key</button><button id="testOddsKey" class="ghost-btn" type="button">Test connection</button></div><p id="oddsStatus" class="muted small">A saved key fills odds for supported WTA matches while the app is open. Manual odds remain available.</p></div>
+      <div class="card form-card"><h4>Odds source</h4><p id="oddsStatus" class="muted small">SportScore automatically freezes available pre-match odds. Verified SportScore markets are pre-match prices; later snapshots remain editable until a live-odds provider is connected.</p></div>
       <div class="stats-grid decider-stats">
         <div class="stat card"><span>Signals</span><strong id="deciderSignals">0</strong></div>
         <div class="stat card"><span>W–L</span><strong id="deciderRecord">0-0</strong></div>
@@ -350,9 +350,9 @@
       </div>
 
       <div class="card">
-        <h4>Free live-score connection</h4>
-        <label>Live Tennis API key
-          <input id="apiKey" type="password" placeholder="twjp_..." autocomplete="off" />
+        <h4>SportScore connection</h4>
+        <label>Secure proxy address
+          <input id="apiKey" type="url" placeholder="https://tennis-edge-sportscore.your-name.workers.dev" autocomplete="off" />
         </label>
         <div class="button-row">
           <button id="saveApiBtn" class="primary-btn" type="button">Save key</button>
@@ -373,7 +373,7 @@
         </div>
         <label class="toggle">
           <input id="autoRefresh" type="checkbox" checked />
-          <span>Refresh live scores every 15 minutes while app is open</span>
+          <span>Refresh live scores every minute while app is open</span>
         </label>
         <button id="saveSettingsBtn" class="primary-btn" type="button">Save settings</button>
       </div>
@@ -395,8 +395,8 @@
 
       <div class="card info-card">
         <h4>Data & cost</h4>
-        <p>Live scores use the Live Tennis API free tier. Historical Elo/form calculations use a public 2021–2026 WTA results snapshot hosted on GitHub; Tennis Edge computes its own ratings locally.</p>
-        <p>No paid backend, database, or app-store account is required for this version.</p>
+        <p>SportScore supplies automatic WTA schedules, scores, points, server, match statistics, results, and available pre-match odds. Your RapidAPI key stays in the secure proxy and is never stored in this site.</p>
+        <p>Historical Elo/form calculations still use the public WTA results snapshot, and Tennis Edge computes its own ratings locally.</p>
       </div>
     </section>
   </main>
@@ -412,6 +412,7 @@
 </div>
 
 <script src="decider.js"></script>
+<script src="sportscore.js"></script>
 <script src="app.js"></script>
 <script src="odds-auto.js"></script>
 <script src="decider-app.js"></script>

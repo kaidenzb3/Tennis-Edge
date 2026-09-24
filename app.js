@@ -1,6 +1,5 @@
 const $ = id => document.getElementById(id);
 
-const API_BASE = "https://api.livetennisapi.com/api/public/v1";
 const HISTORICAL_SOURCE = "https://raw.githubusercontent.com/36-SURE/2026/main/data/wta_matches_2021_2026.csv";
 const STORE = {
   get(k,d){ try { const v=localStorage.getItem(k); return v===null?d:JSON.parse(v); } catch { return d; } },
@@ -401,24 +400,13 @@ function currentSetIndex(m){
 }
 
 // ---------- API ----------
-function getApiKey(){ return STORE.get("te2-api-key",""); }
+function getApiKey(){ return typeof SportScore!=="undefined"?SportScore.proxy():""; }
 async function apiFetch(path){
-  const key=getApiKey();
-  if(!key) throw new Error("No API key saved.");
-
-  let res;
-  try{
-    res=await fetch(API_BASE+path,{headers:{"X-API-Key":key},cache:"no-store"});
-  }catch(_err){
-    const join=path.includes("?")?"&":"?";
-    res=await fetch(`${API_BASE}${path}${join}token=${encodeURIComponent(key)}`,{cache:"no-store"});
-  }
-
-  if(res.status===401) throw new Error("API key was rejected.");
-  if(res.status===429) throw new Error("Free daily request limit reached.");
-  if(res.status===403) throw new Error("This endpoint is not on the free tier.");
-  if(!res.ok) throw new Error(`API error ${res.status}`);
-  return res.json();
+  if(typeof SportScore==="undefined")throw new Error("SportScore adapter did not load.");
+  if(path.includes("status=live"))return {data:await SportScore.live()};
+  if(path.includes("status=upcoming")||path.startsWith("/fixtures"))return {data:await SportScore.scheduled()};
+  if(path.includes("status=completed"))return {data:await SportScore.completed()};
+  throw new Error("Unsupported SportScore request.");
 }
 function unwrapMatches(j){
   if(Array.isArray(j)) return j;
@@ -723,6 +711,21 @@ function fillAnalyzerFromMatch(m,a,b,surface){
     <span>Current live score: ${esc(scoreText(m)||"not available")} ${s.server?`· server: ${s.server===1?esc(api1):esc(api2)}`:""}</span>`;
 
   nav("analyzer");
+  if(typeof SportScore!=="undefined"&&SportScore.proxy()&&m?.id)hydrateSportScoreAnalyzer(m,favIsP1,available);
+}
+
+function statPercent(value){const m=String(value??"").match(/\((\d+(?:\.\d+)?)%\)/);return m?Number(m[1]):null}
+async function hydrateSportScoreAnalyzer(m,favIsP1,available){
+  try{
+    const stats=SportScore.statMap(await SportScore.stats(m.id));
+    const opponentSide=favIsP1?"away":"home";
+    const firstReturn=statPercent(stats.first_serve_return_points?.[opponentSide]);
+    const secondReturn=statPercent(stats.second_serve_return_points?.[opponentSide]);
+    if(firstReturn!=null){$("firstWon").value=Math.max(0,100-firstReturn);markField("firstWon","auto");available.push("1st serve points won")}
+    if(secondReturn!=null){$("secondWon").value=Math.max(0,100-secondReturn);markField("secondWon","auto");available.push("2nd serve points won")}
+    const names=Object.keys(stats).map(x=>x.replaceAll("_"," ")).join(", ");
+    $("autofillStatus").innerHTML=`<strong>Auto-fill status</strong><span class="available-list">SportScore auto: ${esc(available.join(", "))}</span><span>${names?`Live statistics received: ${esc(names)}`:"No detailed statistics are available for this match yet."}</span><span class="missing-list">Fields without an exact SportScore value remain red/manual.</span>`;
+  }catch(err){$("autofillStatus").innerHTML+=`<span class="missing-list">Live-stat lookup: ${esc(err.message)}</span>`}
 }
 
 function bindMatchButtons(){
@@ -773,12 +776,10 @@ $("refreshLiveBtn").onclick=refreshLive;
 async function refreshUpcoming(){
   $("refreshUpcomingBtn").textContent="Loading…"; $("refreshUpcomingBtn").disabled=true;
   try{
-    const [mj,fj]=await Promise.all([
-      apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100"),
-      apiFetch("/fixtures?tour=wta&draw=singles&limit=100")
-    ]);
-    const data=enrichUpcomingWithFixtures(unwrapMatches(mj),unwrapMatches(fj));
+    const mj=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
+    const data=unwrapMatches(mj);
     STORE.set("te2-upcoming-cache",{time:Date.now(),data});
+    if(typeof deciderObserveUpcoming==="function")deciderObserveUpcoming(data);
     if(typeof deciderRender==="function")deciderRender();
     logUpcomingBoard(data);
     populateTournamentFilters();renderTournamentFilteredViews();
@@ -922,17 +923,18 @@ $("clearResultsBtn").onclick=()=>{ if(confirm("Clear tracked plays?")){ STORE.se
 
 // ---------- Settings ----------
 $("saveApiBtn").onclick=()=>{
-  STORE.set("te2-api-key",$("apiKey").value.trim());
+  SportScore.saveProxy($("apiKey").value);
+  window.rapidMode=!!SportScore.proxy();
   setApiConnected(!!getApiKey());
   $("apiTestMsg").textContent="Saved on this device.";
   configureTimer();
 };
 $("testApiBtn").onclick=async()=>{
-  STORE.set("te2-api-key",$("apiKey").value.trim());
+  SportScore.saveProxy($("apiKey").value);
   $("apiTestMsg").textContent="Testing…";
   try{
-    await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=1");
-    $("apiTestMsg").textContent="Connected ✓"; setApiConnected(true);
+    const matches=await SportScore.live();
+    $("apiTestMsg").textContent=`Connected ✓ · ${matches.length} live WTA singles matches`; setApiConnected(true);
   }catch(err){
     $("apiTestMsg").textContent=err.message; setApiConnected(false);
   }
@@ -943,7 +945,7 @@ $("notifyBtn").onclick=async()=>{
   $("notifyBtn").textContent=p==="granted"?"Notifications enabled ✓":"Notifications blocked";
 };
 function setupSettings(){
-  $("apiKey").value=getApiKey();
+  $("apiKey").value=SportScore.proxy();
   $("strongThreshold").value=settings.strong;
   $("goodThreshold").value=settings.good;
   $("autoRefresh").checked=settings.autoRefresh;
@@ -959,7 +961,7 @@ $("saveSettingsBtn").onclick=()=>{
 };
 function configureTimer(){
   if(liveTimer) clearInterval(liveTimer);
-  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(refreshLive,15*60*1000);
+  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(refreshLive,60*1000);
 }
 
 // ---------- Cache / cross-tab refresh ----------

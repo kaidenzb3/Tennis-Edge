@@ -100,6 +100,22 @@ function deciderManualWinner(m){
 }
 const deciderFmt=n=>n==null||!Number.isFinite(n)?"—":Number(n).toFixed(1);
 const oddsBusy=new Set();
+window.rapidMode=typeof SportScore!=="undefined"&&!!SportScore.proxy();
+function sportScorePreOdds(m){
+  const a=Number(m?.main_odds?.outcome_1?.value),b=Number(m?.main_odds?.outcome_2?.value);
+  if(!(a>1&&b>1)||a===b)return null;
+  return a<b?{index:1,odds:a}:{index:2,odds:b};
+}
+function deciderObserveUpcoming(matches){
+  const state=DeciderStore.read();let changed=false;
+  for(const m of matches){
+    const id=deciderId(m),q=sportScorePreOdds(m);if(state.frozen[id]||!q)continue;
+    state.frozen[id]={id,index:q.index,name:pName(m,q.index),opponent:pName(m,3-q.index),surface:mSurface(m),tournament:tournamentName(m),frozenAt:Date.now(),ranks:null};
+    state.odds[id]={pre:{favouriteOdds:q.odds,at:Date.now(),source:"SportScore pre-match"}};changed=true;
+  }
+  if(changed)DeciderStore.write(state);deciderRender();
+}
+window.rapidWatch=async m=>{const q=sportScorePreOdds(m);if(!q)throw new Error("No verified pre-match price is available for this match.");deciderFreeze(m,q.index,q.odds,null,"SportScore pre-match")};
 async function deciderAutoOdds(m,stage){
   const id=deciderId(m),state=DeciderStore.read(),f=state.frozen[id];
   if(!OddsAuto.key()||!f||state.odds[id]?.[stage]||oddsBusy.has(`${id}:${stage}`))return;
@@ -217,5 +233,3 @@ $("minSnapback").value=initialDecider.minSnapbackRecoveryPct;
 $("betterRanking").checked=initialDecider.betterRankingRequired;
 $("betterSurfaceElo").checked=initialDecider.betterSurfaceEloRequired;
 deciderRender();
-$("saveOddsKey").onclick=()=>{OddsAuto.saveKey($("oddsApiKey").value);$("oddsApiKey").value="";$("oddsStatus").textContent=OddsAuto.key()?"Key saved on this device. Add a match to fetch pre-match odds.":"Key cleared."};
-$("testOddsKey").onclick=async()=>{try{$("oddsStatus").textContent="Checking WTA coverage…";const list=await OddsAuto.sports();$("oddsStatus").textContent=`Connection worked. ${list.length} active WTA competitions listed. Add a match to find prices.`;}catch(err){$("oddsStatus").textContent=err.message}};
