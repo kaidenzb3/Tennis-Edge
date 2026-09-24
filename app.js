@@ -812,8 +812,32 @@ function maybeNotify(matches){
   STORE.set("te2-notified",[...notified].slice(-100));
 }
 
-async function refreshPregameResults(){const btn=$("refreshPregameResultsBtn");btn.textContent="Grading…";btn.disabled=true;try{const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;for(const row of log){if(row.status!=="pending")continue;const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;}if(n)savePregameStore(log);renderPregameLog();if(typeof deciderGrade==="function")deciderGrade(data);btn.textContent=n?`Graded ${n} ✓`:"No new results";}catch(err){btn.textContent="Manual grading available";setSourceError(`Completed-results grading: ${err.message||String(err)}`);}finally{setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800)}}
-$("refreshPregameResultsBtn").onclick=refreshPregameResults;$("pregameFilter").onchange=renderPregameLog;$("pregameSort").onchange=renderPregameLog;
+async function refreshPregameResults(silent=false){
+  const btn=$("refreshPregameResultsBtn");
+  if(!silent){btn.textContent="Grading…";btn.disabled=true;}
+  try{
+    const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;
+    for(const row of log){
+      if(row.status!=="pending")continue;
+      const m=data.find(x=>String(x?.id??"")===String(row.matchId??""));if(!m)continue;
+      const winner=m?.winner?.name||m?.winner_name||m?.result?.winner?.name||null;if(!winner)continue;
+      row.winner=winner;row.winnerHit=norm(winner)===norm(row.favourite);row.status=row.winnerHit?"win":"loss";
+      row.exactHit=row.lean==="ML"?row.winnerHit:null;row.gradedAt=Date.now();n++;
+    }
+    if(n)savePregameStore(log);
+    renderPregameLog();
+    if(typeof deciderGrade==="function")deciderGrade(data);
+    if(!silent)btn.textContent=n?`Graded ${n} ✓`:"No new results";
+  }catch(err){
+    if(!silent)btn.textContent="Manual grading available";
+    setSourceError(`Completed-results grading: ${err.message||String(err)}`);
+  }finally{
+    if(!silent)setTimeout(()=>{btn.textContent="↻ Grade";btn.disabled=false},1800);
+  }
+}
+$("refreshPregameResultsBtn").onclick=()=>refreshPregameResults(false);
+$("pregameFilter").onchange=renderPregameLog;$("pregameSort").onchange=renderPregameLog;
+document.querySelector('[data-view="results"]')?.addEventListener("click",()=>refreshPregameResults(true));
 
 // ---------- Live grade ----------
 function valNum(id){
@@ -1066,5 +1090,7 @@ setTimeout(()=>syncHistory(false),350);
 if(getApiKey()){
   setTimeout(refreshLive,1000);
   setTimeout(refreshUpcoming,2200);
+  setTimeout(()=>refreshPregameResults(true),6500);
+  setInterval(()=>refreshPregameResults(true),15*60*1000);
 }
 setInterval(()=>{renderTournamentFilteredViews();},60000);

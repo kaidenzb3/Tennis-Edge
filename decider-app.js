@@ -188,7 +188,9 @@ function deciderRender(){
     const scoreInputs=manual?`<div class="decider-score-grid">${[0,1,2].map(i=>`<div class="decider-set"><span>Set ${i+1}</span><input data-score="a${i}" type="number" min="0" max="30" placeholder="A" value="${games?.[0]?.[i]??""}"><input data-score="b${i}" type="number" min="0" max="30" placeholder="B" value="${games?.[1]?.[i]??""}"></div>`).join("")}</div><button class="small-btn" data-action="score">Save score</button>`:"";
     const profile=f?playerMetrics(f.name,mSurface(m)):null;
     const opponent=f?playerMetrics(f.opponent,mSurface(m)):null;
-    const prematch=m.status==="upcoming"?(f?deciderPrematchCandidate(m,f,edges,s):deciderModelCandidate(m)):null;
+    const status=String(m.status||"").toLowerCase();
+    const start=matchStartDate(m),isPreMatch=!completedSet(m,0)&&!/(inprogress|live|finished|completed|cancelled|canceled)/.test(status)&&(!start||start>Date.now());
+    const prematch=isPreMatch?(f?deciderPrematchCandidate(m,f,edges,s):deciderModelCandidate(m)):null;
     const label=prematch?.label||verdict?.state||"PRE-MATCH";
     const reason=prematch?.reason||verdict?.reason||"";
     const p1Odds=Number(m?.main_odds?.outcome_1?.value),p2Odds=Number(m?.main_odds?.outcome_2?.value);
