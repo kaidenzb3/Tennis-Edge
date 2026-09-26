@@ -1049,7 +1049,10 @@ $("modelTournamentFilter").onchange=e=>setTournamentFilter(e.target.value);
 let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
-if("serviceWorker" in navigator) window.addEventListener("load",()=>navigator.serviceWorker.register("service-worker.js"));
+if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
+  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.9",{updateViaCache:"none"});
+  await reg.update();
+});
 
 
 function migrateHistoricalCache(){

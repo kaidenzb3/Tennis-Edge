@@ -1,7 +1,9 @@
 /* SportScore adapter. All requests go through the configured proxy so the RapidAPI key is never shipped to browsers. */
 const SportScore=(()=>{
   const DEFAULT_PROXY="https://tennis-edge-api.kaidenzb3.workers.dev";
-  const proxy=()=>String(localStorage.getItem("te-sportscore-proxy")||DEFAULT_PROXY).trim().replace(/\/$/,"");
+  // This deployment has one known-good secure Worker. Older installed builds may
+  // have saved an obsolete Worker URL, so always use the verified endpoint.
+  const proxy=()=>DEFAULT_PROXY;
   const req=async(action,params={})=>{
     if(!proxy())throw new Error("Add the SportScore proxy address in Settings.");
     const u=new URL(proxy());u.searchParams.set("action",action);
@@ -44,6 +46,6 @@ const SportScore=(()=>{
   const points=async id=>rows(await req("points",{id}));
   const markets=async id=>rows(await req("markets",{id}));
   function statMap(items){const out={};for(const x of items)out[x.name]={home:x.home,away:x.away,period:x.period};return out}
-  return {proxy,saveProxy:v=>localStorage.setItem("te-sportscore-proxy",String(v||"").trim()),req,live,scheduled,completed,stats,points,markets,statMap,event,wta};
+  return {proxy,saveProxy:()=>localStorage.removeItem("te-sportscore-proxy"),req,live,scheduled,completed,stats,points,markets,statMap,event,wta};
 })();
 if(typeof module!=="undefined")module.exports=SportScore;
