@@ -38,7 +38,7 @@ const SportScore=(()=>{
   const list=j=>rows(j).filter(wta).map(event);
   const dates=offsets=>offsets.map(i=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10)});
   async function live(){return list(await req("live"))}
-  async function scheduled(){const batches=await Promise.all(dates([0,1,2,3,4]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner)}
+  async function scheduled(){const batches=await Promise.all(dates([0,1,2,3,4]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}
   async function completed(){const batches=await Promise.all(dates([-1,0]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>m.winner||/finished|completed/i.test(m.status||""))}
   const stats=async id=>rows(await req("stats",{id}));
   const points=async id=>rows(await req("points",{id}));
