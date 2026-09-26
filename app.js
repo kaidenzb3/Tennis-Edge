@@ -772,7 +772,11 @@ async function refreshLive(){
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     maybeNotify(data);
   }catch(err){
-    $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
+    const cached=STORE.get("te2-live-cache",null);
+    if(cached?.data?.length){
+      $("liveUpdated").textContent=`Cached ${new Date(cached.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · provider limit reached`;
+      populateTournamentFilters();renderTournamentFilteredViews();
+    }else $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
     setApiConnected(false); setSourceStatus("live","bad"); setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
   }finally{
     $("refreshLiveBtn").textContent="↻ Refresh"; $("refreshLiveBtn").disabled=false;
@@ -792,7 +796,9 @@ async function refreshUpcoming(){
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
   }catch(err){
-    $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
+    const cached=STORE.get("te2-upcoming-cache",null);
+    if(cached?.data?.length){populateTournamentFilters();renderTournamentFilteredViews()}
+    else $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
     setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
     $("refreshUpcomingBtn").textContent="Load"; $("refreshUpcomingBtn").disabled=false;
@@ -814,6 +820,8 @@ function maybeNotify(matches){
 
 async function refreshPregameResults(silent=false){
   const btn=$("refreshPregameResultsBtn");
+  const pending=pregameStore().some(row=>row.status==="pending");
+  if(!pending){if(!silent){btn.textContent="Everything graded ✓";setTimeout(()=>btn.textContent="↻ Grade",1800)}return}
   if(!silent){btn.textContent="Grading…";btn.disabled=true;}
   try{
     const j=await apiFetch("/matches?status=completed&tour=wta&draw=singles&limit=100"),data=unwrapMatches(j),log=pregameStore();let n=0;
@@ -992,7 +1000,7 @@ $("saveSettingsBtn").onclick=()=>{
 };
 function configureTimer(){
   if(liveTimer) clearInterval(liveTimer);
-  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(refreshLive,60*1000);
+  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(refreshLive,2*60*1000);
 }
 
 // ---------- Cache / cross-tab refresh ----------
@@ -1050,7 +1058,7 @@ let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.9",{updateViaCache:"none"});
+  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.10",{updateViaCache:"none"});
   await reg.update();
 });
 
@@ -1092,7 +1100,8 @@ setTimeout(()=>syncHistory(false),350);
 // If a key exists, refresh current boards shortly after startup.
 if(getApiKey()){
   setTimeout(refreshLive,1000);
-  setTimeout(refreshUpcoming,2200);
+  const upcomingCache=STORE.get("te2-upcoming-cache",null);
+  if(!upcomingCache?.time||Date.now()-upcomingCache.time>2*60*60*1000)setTimeout(refreshUpcoming,2200);
   setTimeout(()=>refreshPregameResults(true),6500);
   setInterval(()=>refreshPregameResults(true),15*60*1000);
 }
