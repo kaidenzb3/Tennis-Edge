@@ -605,7 +605,8 @@ function liveMatchCard(m,live=true){
   const pre=live?preliminaryLive(m):pm;
   const grade=pre?.score??pm?.grade??0;
   const tier=grade>=settings.strong?"strong":grade>=settings.good?"good":grade>=62?"watch":"pass";
-  const label=grade?`${tier.toUpperCase()} ${grade}`:"NO ELO";
+  const missingElo=[!findPlayer(a)?a:null,!findPlayer(b)?b:null].filter(Boolean);
+  const label=grade?`${tier.toUpperCase()} ${grade}`:`NO ELO: ${missingElo.join(" + ")||"profile unavailable"}`;
   const s=scoreObj(m);
   const server=s.server;
   const aDisp=`${server===1?'<span class="server">●</span> ':''}${esc(a)}`;
@@ -1058,7 +1059,7 @@ let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.10",{updateViaCache:"none"});
+  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.11",{updateViaCache:"none"});
   await reg.update();
 });
 
