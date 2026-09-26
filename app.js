@@ -628,7 +628,7 @@ function liveMatchCard(m,live=true){
       </div>
       <span class="badge ${tier}">${label}</span>
     </div>
-    ${live?`<div class="scoreline">${esc(scoreText(m)||"Live")}</div><span class="live-set-chip">Set ${currentSetIndex(m)+1}</span>`:""}
+    ${live?`<div class="scoreline">${esc(scoreText(m)||"Live score pending")}</div><span class="live-set-chip">${esc(m.status_detail||`Set ${currentSetIndex(m)+1}`)}${server?` · ${esc(server===1?a:b)} serving`:""}</span>`:""}
     ${metrics}
     ${live?'<span class="route-tag live">LIVE → LIVE ANALYZER</span>':'<span class="route-tag pre">UPCOMING → PRE-MATCH MODEL</span>'}
     <div class="match-actions">

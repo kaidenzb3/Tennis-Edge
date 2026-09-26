@@ -12,26 +12,33 @@ const SportScore=(()=>{
     return body;
   };
   const rows=j=>Array.isArray(j)?j:Array.isArray(j?.data)?j.data:[];
-  const text=e=>[e?.section?.name,e?.section?.slug,e?.league?.name,e?.league?.slug,e?.challenge?.name,e?.season?.name].filter(Boolean).join(" ");
-  const singles=e=>!/[\/]|doubles/i.test(`${e?.home_team?.name||""} ${e?.away_team?.name||""} ${text(e)}`);
+  const home=e=>e?.home_team||e?.homeTeam||{};
+  const away=e=>e?.away_team||e?.awayTeam||{};
+  const text=e=>[e?.section?.name,e?.section?.slug,e?.league?.name,e?.league?.slug,e?.challenge?.name,e?.tournament?.name,e?.tournament?.category?.name,e?.season?.name].filter(Boolean).join(" ");
+  const singles=e=>!/[\/]|doubles/i.test(`${home(e)?.name||""} ${away(e)?.name||""} ${text(e)}`);
   const excluded=e=>/\butr\b|\bitf\b|billie jean king|fed cup|college|ncaa/i.test(text(e));
-  const wta=e=>singles(e)&&!excluded(e)&&(/\bwta\b/i.test(text(e))||(e?.home_team?.gender==="F"&&e?.away_team?.gender==="F"));
+  const mens=e=>/\batp\b|\bmen singles\b|\bmen's\b|\bboys\b/i.test(text(e))||home(e)?.gender==="M"||away(e)?.gender==="M";
+  const wta=e=>singles(e)&&!excluded(e)&&!mens(e)&&(/\bwta\b/i.test(text(e))||(home(e)?.gender==="F"&&away(e)?.gender==="F")||(!home(e)?.gender&&!away(e)?.gender));
   const surface=s=>/clay/i.test(s)?"Clay":/grass/i.test(s)?"Grass":/carpet/i.test(s)?"Carpet":"Hard";
   const score=e=>{
-    const h=e?.home_score||{},a=e?.away_score||{},hg=[],ag=[];
-    for(let i=1;i<=5;i++)if(h[`period_${i}`]!=null||a[`period_${i}`]!=null){hg.push(h[`period_${i}`]??0);ag.push(a[`period_${i}`]??0)}
-    return {sets:[h.current??0,a.current??0],games:[hg,ag],points:[h.point??null,a.point??null],server:e?.first_supply??null};
+    const h=e?.home_score||e?.homeScore||{},a=e?.away_score||e?.awayScore||{},hg=[],ag=[];
+    const period=(o,i)=>o[`period_${i}`]??o[`period${i}`];
+    for(let i=1;i<=5;i++)if(period(h,i)!=null||period(a,i)!=null){hg.push(period(h,i)??0);ag.push(period(a,i)??0)}
+    return {sets:[h.current??0,a.current??0],games:[hg,ag],points:[h.point??null,a.point??null],server:e?.first_supply??e?.firstToServe??null};
   };
   const event=e=>{
-    const winner=e?.winner_code===1?e?.home_team:e?.winner_code===2?e?.away_team:null;
-    return {id:String(e.id),players:{p1:{id:e?.home_team?.id,name:e?.home_team?.name,rank:e?.home_team?.ranking??null},p2:{id:e?.away_team?.id,name:e?.away_team?.name,rank:e?.away_team?.ranking??null}},
-      tournament:e?.challenge?.name||e?.league?.name||"WTA",round:e?.round_info?.name||"",surface:surface(e?.ground_type),start_at:e?.start_at?`${String(e.start_at).replace(" ","T")}Z`:null,status:e?.status,
+    const h=home(e),a=away(e),winnerCode=e?.winner_code??e?.winnerCode;
+    const winner=winnerCode===1?h:winnerCode===2?a:null;
+    const status=typeof e?.status==="string"?e.status:(e?.status?.type||e?.status?.description||"");
+    const start=e?.start_at?`${String(e.start_at).replace(" ","T")}Z`:(e?.startTimestamp?new Date(Number(e.startTimestamp)*1000).toISOString():null);
+    return {id:String(e.id),players:{p1:{id:h?.id,name:h?.name,rank:h?.ranking??h?.playerTeamInfo?.currentRanking??null},p2:{id:a?.id,name:a?.name,rank:a?.ranking??a?.playerTeamInfo?.currentRanking??null}},
+      tournament:e?.challenge?.name||e?.tournament?.name||e?.league?.name||"WTA",round:e?.round_info?.name||e?.roundInfo?.name||"",surface:surface(e?.ground_type||e?.groundType),start_at:start,status,status_detail:e?.status_more||e?.status?.description||"",
       winner:winner?{name:winner.name}:null,score:score(e),main_odds:e?.main_odds||null,_sportscore:e};
   };
   const list=j=>rows(j).filter(wta).map(event);
   const dates=offsets=>offsets.map(i=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10)});
   async function live(){return list(await req("live"))}
-  async function scheduled(){const batches=await Promise.all(dates([0,1,2]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>m.status!=="inprogress"&&!m.winner)}
+  async function scheduled(){const batches=await Promise.all(dates([0,1,2,3,4]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner)}
   async function completed(){const batches=await Promise.all(dates([-1,0]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>m.winner||/finished|completed/i.test(m.status||""))}
   const stats=async id=>rows(await req("stats",{id}));
   const points=async id=>rows(await req("points",{id}));
