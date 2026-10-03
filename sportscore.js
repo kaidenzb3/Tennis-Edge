@@ -4,14 +4,24 @@ const SportScore=(()=>{
   // This deployment has one known-good secure Worker. Older installed builds may
   // have saved an obsolete Worker URL, so always use the verified endpoint.
   const proxy=()=>DEFAULT_PROXY;
+  const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const req=async(action,params={})=>{
     if(!proxy())throw new Error("Add the SportScore proxy address in Settings.");
     const u=new URL(proxy());u.searchParams.set("action",action);
     for(const [k,v] of Object.entries(params))if(v!=null)u.searchParams.set(k,v);
-    const r=await fetch(u,{cache:"no-store"});
-    const body=await r.json().catch(()=>({}));
-    if(!r.ok)throw new Error(body.error||`SportScore returned ${r.status}`);
-    return body;
+    let lastError;
+    for(let attempt=0;attempt<2;attempt++){
+      try{
+        const r=await fetch(u,{cache:"no-store"});
+        const body=await r.json().catch(()=>({}));
+        if(!r.ok)throw new Error(body.error||`SportScore returned ${r.status}`);
+        return body;
+      }catch(err){
+        lastError=err;
+        if(attempt===0)await pause(650);
+      }
+    }
+    throw lastError||new Error("SportScore request failed.");
   };
   const rows=j=>Array.isArray(j)?j:Array.isArray(j?.data)?j.data:[];
   const home=e=>e?.home_team||e?.homeTeam||{};
@@ -40,8 +50,14 @@ const SportScore=(()=>{
   const list=j=>rows(j).filter(wta).map(event);
   const dates=offsets=>offsets.map(i=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10)});
   async function live(){return list(await req("live"))}
-  async function scheduled(){const batches=await Promise.all(dates([0,1,2]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}
-  async function completed(){const batches=await Promise.all(dates([-1,0]).map(date=>req("date",{date})));return batches.flatMap(list).filter(m=>m.winner||/finished|completed/i.test(m.status||""))}
+  async function dateBatches(offsets){
+    const settled=await Promise.allSettled(dates(offsets).map(date=>req("date",{date})));
+    const good=settled.filter(x=>x.status==="fulfilled").map(x=>x.value);
+    if(!good.length)throw settled.find(x=>x.status==="rejected")?.reason||new Error("SportScore request failed.");
+    return good;
+  }
+  async function scheduled(){const batches=await dateBatches([0,1,2]);return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}
+  async function completed(){const batches=await dateBatches([-1,0]);return batches.flatMap(list).filter(m=>m.winner||/finished|completed/i.test(m.status||""))}
   const stats=async id=>rows(await req("stats",{id}));
   const points=async id=>rows(await req("points",{id}));
   const markets=async id=>rows(await req("markets",{id}));
