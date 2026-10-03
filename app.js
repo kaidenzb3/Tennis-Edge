@@ -180,6 +180,27 @@ const PlayerDB = {
 function buildModelCache(){ PlayerDB.rebuild(history); renderHistoryStatus(); updateMatchedStatus(); }
 function findPlayer(name){ return PlayerDB.resolve(name); }
 
+function recentSetProfile(matches){
+  const stages=[{wins:0,played:0},{wins:0,played:0},{wins:0,played:0}];
+  for(const match of matches){
+    const sets=String(match.score||"").match(/\d+\s*-\s*\d+(?:\([^)]*\))?/g)||[];
+    sets.slice(0,3).forEach((token,index)=>{
+      const pair=token.match(/^(\d+)\s*-\s*(\d+)/);
+      if(!pair)return;
+      const winnerGames=Number(pair[1]),loserGames=Number(pair[2]);
+      const playerGames=match.win?winnerGames:loserGames;
+      const opponentGames=match.win?loserGames:winnerGames;
+      if(playerGames===opponentGames)return;
+      stages[index].played++;
+      if(playerGames>opponentGames)stages[index].wins++;
+    });
+  }
+  return stages.map(stage=>({
+    ...stage,
+    rate:(stage.wins+2)/(stage.played+4)
+  }));
+}
+
 function playerMetrics(name,surface="Hard"){
   const p=findPlayer(name);
   if(!p) return null;
@@ -187,6 +208,7 @@ function playerMetrics(name,surface="Hard"){
   const l10=rec.slice(0,10);
   const s10=rec.filter(x=>x.surface===surface).slice(0,10);
   const three=l10.filter(x=>String(x.score||"").split(" ").filter(z=>/^\d/.test(z)).length>=3).length;
+  const setStages=recentSetProfile(rec.slice(0,20));
   return {
     name:p.name,
     elo:p.elo,
@@ -194,6 +216,7 @@ function playerMetrics(name,surface="Hard"){
     last10:l10.filter(x=>x.win).length,
     surface10:s10.filter(x=>x.win).length,
     threeSet:three,
+    setStages,
     played10:l10.length,
     splayed:s10.length
   };
@@ -220,7 +243,8 @@ function prematchModel(a,b,surface){
   const fav=pA>=.5?A:B, opp=pA>=.5?B:A, winP=Math.max(pA,pB);
   const favThree=fav.threeSet/Math.max(1,fav.played10);
   const oppThree=opp.threeSet/Math.max(1,opp.played10);
-  const poisson=typeof TennisPoisson!=="undefined"?TennisPoisson.matchProjection(winP):null;
+  const stageAdjustments=[0,1,2].map(i=>clamp(((fav.setStages?.[i]?.rate??.5)-(opp.setStages?.[i]?.rate??.5))*.18,-.06,.06));
+  const poisson=typeof TennisPoisson!=="undefined"?TennisPoisson.matchProjection(winP,stageAdjustments):null;
   const drop=clamp(.24+.22*oppThree+.14*favThree-.16*(winP-.5),.15,.55);
   const legacyP21=winP*drop;
   const p21=poisson?poisson.twoOne:legacyP21;
@@ -237,7 +261,7 @@ function prematchModel(a,b,surface){
 
   const favIsA=fav===A;
   return {
-    A,B,fav,opp,winP,p20,p21,lean,grade,poisson,exact21Qualified,enoughHistory,threeSetRate,
+    A,B,fav,opp,winP,p20,p21,lean,grade,poisson,stageAdjustments,exact21Qualified,enoughHistory,threeSetRate,
     eloEdge:Math.round((favIsA?1:-1)*globalDiff),
     surfaceEdge:Math.round((favIsA?1:-1)*surfDiff)
   };
@@ -580,8 +604,10 @@ function poissonBars(scores){
 function renderPoissonBoard(m){
   const p=m.poisson;
   if(!p?.set?.scores?.length)return "";
-  const fav=esc(m.fav.name),opp=esc(m.opp.name),setWin=Math.round(p.setWin*100),oppSet=100-setWin,reach=Math.round(p.decidingSet*100);
-  const scoreBars=poissonBars(p.set.scores);
+  const fav=esc(m.fav.name),opp=esc(m.opp.name),reach=Math.round(p.decidingSet*100);
+  const stages=p.setStages||[p.set,p.set,p.set];
+  const stageWin=i=>Math.round((p.setWins?.[i]??p.setWin)*100);
+  const summary=i=>`<div class="poisson-summary"><div><span>${fav} wins set</span><strong>${stageWin(i)}%</strong></div><div><span>${opp} wins set</span><strong>${100-stageWin(i)}%</strong></div></div>`;
   return `<div class="poisson-panel poisson-board">
     <div class="poisson-title">Poisson probability board</div>
     <div class="poisson-tabs" role="tablist" aria-label="Set probability view">
@@ -590,19 +616,20 @@ function renderPoissonBoard(m){
       <button class="poisson-set-tab" type="button" data-set="3">Set 3</button>
     </div>
     <div class="poisson-set-view active" data-set-view="1">
-      <div class="poisson-summary"><div><span>${fav} wins set</span><strong>${setWin}%</strong></div><div><span>${opp} wins set</span><strong>${oppSet}%</strong></div></div>
-      <div class="poisson-board-label">Most likely Set 1 scores · favourite shown first</div>${scoreBars}
+      ${summary(0)}
+      <div class="poisson-board-label">Most likely Set 1 scores · favourite shown first</div>${poissonBars(stages[0].scores)}
     </div>
     <div class="poisson-set-view" data-set-view="2">
       <div class="poisson-summary three"><div><span>${fav} leads 2–0</span><strong>${Math.round(p.twoZero*100)}%</strong></div><div><span>Match tied 1–1</span><strong>${reach}%</strong></div><div><span>${opp} leads 2–0</span><strong>${Math.round(p.opponentTwoZero*100)}%</strong></div></div>
-      <div class="poisson-board-label">Most likely Set 2 scores · pre-match projection</div>${scoreBars}
+      ${summary(1)}
+      <div class="poisson-board-label">Most likely Set 2 scores · adjusted for both players' Set 2 history</div>${poissonBars(stages[1].scores)}
     </div>
     <div class="poisson-set-view" data-set-view="3">
       <div class="poisson-reach"><span>Probability the match reaches Set 3</span><strong>${reach}%</strong></div>
-      <div class="poisson-summary"><div><span>${fav} wins decider</span><strong>${setWin}%</strong></div><div><span>${opp} wins decider</span><strong>${oppSet}%</strong></div></div>
-      <div class="poisson-board-label">Set 3 score probabilities · conditional on a decider</div>${scoreBars}
+      <div class="poisson-summary"><div><span>${fav} wins decider</span><strong>${stageWin(2)}%</strong></div><div><span>${opp} wins decider</span><strong>${100-stageWin(2)}%</strong></div></div>
+      <div class="poisson-board-label">Set 3 scores · adjusted for deciding-set history</div>${poissonBars(stages[2].scores)}
     </div>
-    <div class="poisson-note">Close-set probability: ${Math.round(p.set.closeSetMass*100)}%. Set 2 uses the pre-match model; Set 3 percentages apply only if the match reaches a deciding set. These are research estimates, not guaranteed outcomes.</div>
+    <div class="poisson-note">Each set blends the Elo baseline with both players' last 20 recorded matches for that set number. Historical adjustments are capped at 6 percentage points. Set 3 percentages apply only if the match reaches a decider. These are research estimates, not guaranteed outcomes.</div>
   </div>`;
 }
 document.addEventListener("click",event=>{

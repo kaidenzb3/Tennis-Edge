@@ -34,19 +34,24 @@
     }
     return (low+high)/2;
   }
-  function matchProjection(matchWinProbability){
+  function matchProjection(matchWinProbability,stageAdjustments=[0,0,0]){
     const p=clamp(Number(matchWinProbability)||.5,.08,.92);
-    const setWin=setWinFromMatch(p);
-    const opponentSetWin=1-setWin;
+    const baseline=setWinFromMatch(p);
+    const setWins=[0,1,2].map(i=>clamp(baseline+(Number(stageAdjustments[i])||0),.08,.92));
+    const [setOne,setTwo,setThree]=setWins;
+    const twoZero=setOne*setTwo;
+    const decidingSet=setOne*(1-setTwo)+(1-setOne)*setTwo;
+    const twoOne=decidingSet*setThree;
+    const opponentTwoZero=(1-setOne)*(1-setTwo);
+    const opponentTwoOne=decidingSet*(1-setThree);
     return {
-      twoZero:setWin*setWin,
-      twoOne:2*setWin*setWin*opponentSetWin,
-      opponentTwoZero:opponentSetWin*opponentSetWin,
-      opponentTwoOne:2*opponentSetWin*opponentSetWin*setWin,
-      decidingSet:2*setWin*opponentSetWin,
-      opponentWins:1-p,
-      setWin,
-      set:setProjection(setWin)
+      twoZero,twoOne,opponentTwoZero,opponentTwoOne,decidingSet,
+      opponentWins:opponentTwoZero+opponentTwoOne,
+      projectedMatchWin:twoZero+twoOne,
+      setWin:baseline,
+      setWins,
+      setStages:setWins.map(setProjection),
+      set:setProjection(setOne)
     };
   }
   const api={pmf,setProjection,setWinFromMatch,matchProjection};
