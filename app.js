@@ -23,6 +23,21 @@ function pct(n,d){ return d ? Math.round((n/d)*100) : 0; }
 function clamp(n,a,b){ return Math.max(a,Math.min(b,n)); }
 function logistic(diff){ return 1/(1+Math.pow(10,-diff/400)); }
 function nowLabel(){ return new Date().toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}); }
+function wait(ms){return new Promise(resolve=>setTimeout(resolve,ms));}
+async function fetchWithRetry(url,options={},attempts=3){
+  let lastError;
+  for(let attempt=1;attempt<=attempts;attempt++){
+    try{
+      const response=await fetch(url,options);
+      if(!response.ok)throw new Error(`HTTP ${response.status}`);
+      return response;
+    }catch(err){
+      lastError=err;
+      if(attempt<attempts)await wait(500*attempt);
+    }
+  }
+  throw lastError||new Error("Network request failed.");
+}
 function yyyy(){ return new Date().getFullYear(); }
 function matchStartRaw(m){return m?.scheduled_time||m?._fixture_start_time||m?.start_time||m?.start_at||m?.scheduled_at||m?.scheduled||m?.date_time||m?.datetime||m?.match_time||m?.time||m?.starts_at||m?.start_date||null;}
 function matchStartDate(m){const raw=matchStartRaw(m);if(!raw)return null;if(typeof raw==="number"){const d=new Date(raw<1e12?raw*1000:raw);return isNaN(d)?null:d;}const d=new Date(raw);return isNaN(d)?null:d;}
@@ -244,8 +259,7 @@ async function syncHistory(force=false){
   }
 
   try{
-    const res=await fetch(`${HISTORICAL_SOURCE}?ts=${Date.now()}`,{cache:"no-store"});
-    if(!res.ok) throw new Error(`Historical source HTTP ${res.status}`);
+    const res=await fetchWithRetry(`${HISTORICAL_SOURCE}?ts=${Date.now()}`,{cache:"no-store"},3);
 
     const rows=parseCSV(await res.text());
     if(rows.length<5000) throw new Error(`Historical source returned only ${rows.length} rows`);
@@ -284,14 +298,22 @@ async function syncHistory(force=false){
     clearSourceError();
 
     if(btn){ btn.textContent="Synced ✓"; setTimeout(()=>btn.textContent="Sync data",1500); }
+    return true;
   }catch(err){
     console.error(err);
-    setSourceStatus("history","bad");
-    setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
-    if(btn) btn.textContent="Sync failed";
-    if(!history.length){
+    if(history.length){
+      buildModelCache();
+      refreshAllModelViews();
+      setSourceStatus("history","ok");
+      setSourceError(`Historical refresh delayed; using ${history.length.toLocaleString()} saved matches.`);
+      if(btn){btn.textContent="Using saved data ✓";setTimeout(()=>btn.textContent="Sync data",1800);}
+    }else{
+      setSourceStatus("history","bad");
+      setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));
+      if(btn) btn.textContent="Sync failed";
       $("modelBoard").innerHTML='<div class="empty card missing-list">Historical sync failed. Check Settings → Source status for the exact error.</div>';
     }
+    return false;
   }finally{
     if(btn) btn.disabled=false;
   }
@@ -526,8 +548,7 @@ function renderPregameLog(){const s=pregameStats();$("pregameLogged").textConten
 function renderPrematch(m,surface="Hard"){
   if(m.error) return `<div class="result-card"><div class="result-title">No model result</div><p class="missing-list">${esc(m.error)}</p></div>`;
   const tier=m.grade>=settings.strong?"STRONG":m.grade>=settings.good?"GOOD":"WATCH";
-  const poissonScores=(m.poisson?.set.scores||[]).slice(0,3);
-  const poissonHtml=poissonScores.length?`<div class="poisson-panel"><div class="poisson-title">Poisson set-score projection</div><div class="poisson-scores">${poissonScores.map(x=>`<span><strong>${x.fav}–${x.opp}</strong> ${Math.round(x.probability*100)}%</span>`).join("")}</div><div class="poisson-note">Close-set probability: ${Math.round(m.poisson.set.closeSetMass*100)}%. Exact 2–1 needs at least 28.5% model probability, 31% close-set probability, 30% recent three-set rate, and 6 matches of history for both players.</div></div>`:"";
+  const poissonHtml=renderPoissonBoard(m);
   return `<div class="result-card">
     <div class="result-score">${m.grade}</div>
     <div class="result-title">${tier}: ${esc(m.fav.name)}</div>
@@ -548,6 +569,49 @@ function renderPrematch(m,surface="Hard"){
     </ul>
   </div>`;
 }
+
+function poissonBars(scores){
+  return scores.slice(0,8).map(x=>{
+    const probability=Math.round(x.probability*1000)/10;
+    const winner=x.fav>x.opp?"fav":"opp";
+    return `<div class="poisson-outcome ${winner}"><div class="poisson-outcome-label"><strong>${x.fav}–${x.opp}</strong><span>${probability}%</span></div><div class="poisson-track"><i style="width:${Math.max(2,probability)}%"></i></div></div>`;
+  }).join("");
+}
+function renderPoissonBoard(m){
+  const p=m.poisson;
+  if(!p?.set?.scores?.length)return "";
+  const fav=esc(m.fav.name),opp=esc(m.opp.name),setWin=Math.round(p.setWin*100),oppSet=100-setWin,reach=Math.round(p.decidingSet*100);
+  const scoreBars=poissonBars(p.set.scores);
+  return `<div class="poisson-panel poisson-board">
+    <div class="poisson-title">Poisson probability board</div>
+    <div class="poisson-tabs" role="tablist" aria-label="Set probability view">
+      <button class="poisson-set-tab active" type="button" data-set="1">Set 1</button>
+      <button class="poisson-set-tab" type="button" data-set="2">Set 2</button>
+      <button class="poisson-set-tab" type="button" data-set="3">Set 3</button>
+    </div>
+    <div class="poisson-set-view active" data-set-view="1">
+      <div class="poisson-summary"><div><span>${fav} wins set</span><strong>${setWin}%</strong></div><div><span>${opp} wins set</span><strong>${oppSet}%</strong></div></div>
+      <div class="poisson-board-label">Most likely Set 1 scores · favourite shown first</div>${scoreBars}
+    </div>
+    <div class="poisson-set-view" data-set-view="2">
+      <div class="poisson-summary three"><div><span>${fav} leads 2–0</span><strong>${Math.round(p.twoZero*100)}%</strong></div><div><span>Match tied 1–1</span><strong>${reach}%</strong></div><div><span>${opp} leads 2–0</span><strong>${Math.round(p.opponentTwoZero*100)}%</strong></div></div>
+      <div class="poisson-board-label">Most likely Set 2 scores · pre-match projection</div>${scoreBars}
+    </div>
+    <div class="poisson-set-view" data-set-view="3">
+      <div class="poisson-reach"><span>Probability the match reaches Set 3</span><strong>${reach}%</strong></div>
+      <div class="poisson-summary"><div><span>${fav} wins decider</span><strong>${setWin}%</strong></div><div><span>${opp} wins decider</span><strong>${oppSet}%</strong></div></div>
+      <div class="poisson-board-label">Set 3 score probabilities · conditional on a decider</div>${scoreBars}
+    </div>
+    <div class="poisson-note">Close-set probability: ${Math.round(p.set.closeSetMass*100)}%. Set 2 uses the pre-match model; Set 3 percentages apply only if the match reaches a deciding set. These are research estimates, not guaranteed outcomes.</div>
+  </div>`;
+}
+document.addEventListener("click",event=>{
+  const tab=event.target.closest(".poisson-set-tab");
+  if(!tab)return;
+  const board=tab.closest(".poisson-board"),set=tab.dataset.set;
+  board.querySelectorAll(".poisson-set-tab").forEach(x=>x.classList.toggle("active",x===tab));
+  board.querySelectorAll(".poisson-set-view").forEach(x=>x.classList.toggle("active",x.dataset.setView===set));
+});
 $("prematchForm").onsubmit=e=>{
   e.preventDefault();
   const surface=$("preSurface").value;
@@ -1073,13 +1137,13 @@ function loadCaches(){
 $("forceSourceSyncBtn").onclick=async()=>{
   $("forceSourceSyncBtn").textContent="Syncing everything…";
   try{
-    await syncHistory(true);
+    const historyFresh=await syncHistory(true);
     if(getApiKey()){
       await refreshLive();
       await refreshUpcoming();
     }
     refreshAllModelViews();
-    $("forceSourceSyncBtn").textContent="Full sync complete ✓";
+    $("forceSourceSyncBtn").textContent=historyFresh?"Full sync complete ✓":"Live updated · saved Elo kept ✓";
     setTimeout(()=>$("forceSourceSyncBtn").textContent="Force full source sync",1600);
   }catch(err){
     setSourceError((err && err.name ? err.name + ": " : "") + (err.message||String(err)));

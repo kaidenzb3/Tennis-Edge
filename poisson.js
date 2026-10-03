@@ -37,7 +37,17 @@
   function matchProjection(matchWinProbability){
     const p=clamp(Number(matchWinProbability)||.5,.08,.92);
     const setWin=setWinFromMatch(p);
-    return {twoZero:setWin*setWin,twoOne:2*setWin*setWin*(1-setWin),opponentWins:1-p,setWin,set:setProjection(setWin)};
+    const opponentSetWin=1-setWin;
+    return {
+      twoZero:setWin*setWin,
+      twoOne:2*setWin*setWin*opponentSetWin,
+      opponentTwoZero:opponentSetWin*opponentSetWin,
+      opponentTwoOne:2*opponentSetWin*opponentSetWin*setWin,
+      decidingSet:2*setWin*opponentSetWin,
+      opponentWins:1-p,
+      setWin,
+      set:setProjection(setWin)
+    };
   }
   const api={pmf,setProjection,setWinFromMatch,matchProjection};
   if(typeof module!=="undefined"&&module.exports)module.exports=api;
