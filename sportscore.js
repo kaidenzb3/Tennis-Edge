@@ -8,11 +8,12 @@ const SportScore=(()=>{
   const req=async(action,params={})=>{
     if(!proxy())throw new Error("Add the SportScore proxy address in Settings.");
     const u=new URL(proxy());u.searchParams.set("action",action);
+    u.searchParams.set("client","web-18");
     for(const [k,v] of Object.entries(params))if(v!=null)u.searchParams.set(k,v);
     let lastError;
     for(let attempt=0;attempt<2;attempt++){
       try{
-        const r=await fetch(u,{cache:"no-store"});
+        const r=await fetch(u,{cache:"no-store",mode:"cors",credentials:"omit"});
         const body=await r.json().catch(()=>({}));
         if(!r.ok)throw new Error(body.error||`SportScore returned ${r.status}`);
         return body;
@@ -51,9 +52,13 @@ const SportScore=(()=>{
   const dates=offsets=>offsets.map(i=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10)});
   async function live(){return list(await req("live"))}
   async function dateBatches(offsets){
-    const settled=await Promise.allSettled(dates(offsets).map(date=>req("date",{date})));
-    const good=settled.filter(x=>x.status==="fulfilled").map(x=>x.value);
-    if(!good.length)throw settled.find(x=>x.status==="rejected")?.reason||new Error("SportScore request failed.");
+    const good=[];let lastError;
+    for(const date of dates(offsets)){
+      try{good.push(await req("date",{date}));}
+      catch(err){lastError=err;}
+      if(offsets.length>1)await pause(180);
+    }
+    if(!good.length)throw lastError||new Error("Tennis schedule connection failed.");
     return good;
   }
   async function scheduled(){const batches=await dateBatches([0,1,2]);return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}

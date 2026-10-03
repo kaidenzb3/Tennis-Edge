@@ -1187,7 +1187,7 @@ window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredP
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
   try{
-    const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.17",{updateViaCache:"none"});
+    const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.18",{updateViaCache:"none"});
     let refreshing=false;
     navigator.serviceWorker.addEventListener("controllerchange",()=>{
       if(refreshing)return;
