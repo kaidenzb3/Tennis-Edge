@@ -501,7 +501,8 @@ function renderModelBoardFiltered(){
 function renderTournamentFilteredViews(){
   const live=applyTournamentFilter(STORE.get("te2-live-cache",null)?.data||[]);
   const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
-  $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):'<div class="empty card">No live matches in this tournament.</div>';
+  const filtered=currentTournamentFilter()!=="all";
+  $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):`<div class="empty card"><strong>API connected ✓</strong><br>${filtered?"No live WTA singles matches in this tournament.":"No WTA singles matches are live right now. Tennis Edge will check again automatically."}</div>`;
   $("upcomingMatches").innerHTML=up.length?up.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
   renderModelBoardFiltered();bindMatchButtons();
 }
@@ -1008,9 +1009,10 @@ $("testApiBtn").onclick=async()=>{
   $("apiTestMsg").textContent="Testing…";
   try{
     const matches=await SportScore.live();
-    $("apiTestMsg").textContent=`Connected ✓ · ${matches.length} live WTA singles matches`; setApiConnected(true);
+    $("apiTestMsg").textContent=`Connected ✓ · ${matches.length} live WTA singles matches`;
+    setApiConnected(true);setSourceStatus("live","ok");clearSourceError();
   }catch(err){
-    $("apiTestMsg").textContent=err.message; setApiConnected(false);
+    $("apiTestMsg").textContent=err.message;setApiConnected(false);setSourceStatus("live","bad");setSourceError(err.message||String(err));
   }
 };
 $("notifyBtn").onclick=async()=>{
@@ -1093,7 +1095,7 @@ let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.12",{updateViaCache:"none"});
+  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.13",{updateViaCache:"none"});
   await reg.update();
 });
 
