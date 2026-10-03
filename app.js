@@ -205,18 +205,24 @@ function prematchModel(a,b,surface){
   const fav=pA>=.5?A:B, opp=pA>=.5?B:A, winP=Math.max(pA,pB);
   const favThree=fav.threeSet/Math.max(1,fav.played10);
   const oppThree=opp.threeSet/Math.max(1,opp.played10);
+  const poisson=typeof TennisPoisson!=="undefined"?TennisPoisson.matchProjection(winP):null;
   const drop=clamp(.24+.22*oppThree+.14*favThree-.16*(winP-.5),.15,.55);
-  const p21=winP*drop, p20=winP-p21;
+  const legacyP21=winP*drop;
+  const p21=poisson?poisson.twoOne:legacyP21;
+  const p20=poisson?poisson.twoZero:winP-legacyP21;
+  const threeSetRate=(favThree+oppThree)/2;
+  const enoughHistory=fav.played10>=6&&opp.played10>=6;
+  const exact21Qualified=winP>=.62&&p21>=.285&&threeSetRate>=.30&&enoughHistory&&(poisson?.set.closeSetMass??0)>=.31;
 
   let lean="PASS",grade=60;
-  if(winP>=.78 && p20>p21*1.3){ lean="2–0"; grade=Math.round(65+winP*25); }
-  else if(winP>=.62 && p21>=.20){ lean="2–1"; grade=Math.round(64+winP*22+Math.min(8,(oppThree+favThree)*7)); }
+  if(winP>=.78&&p20>=.50&&(poisson?.set.closeSetMass??1)<.31){ lean="2–0"; grade=Math.round(65+winP*25); }
+  else if(exact21Qualified){ lean="2–1"; grade=Math.round(62+winP*20+Math.min(8,threeSetRate*12)); }
   else if(winP>=.58){ lean="ML"; grade=Math.round(58+winP*22); }
   grade=clamp(grade,1,96);
 
   const favIsA=fav===A;
   return {
-    A,B,fav,opp,winP,p20,p21,lean,grade,
+    A,B,fav,opp,winP,p20,p21,lean,grade,poisson,exact21Qualified,enoughHistory,threeSetRate,
     eloEdge:Math.round((favIsA?1:-1)*globalDiff),
     surfaceEdge:Math.round((favIsA?1:-1)*surfDiff)
   };
@@ -519,6 +525,8 @@ function renderPregameLog(){const s=pregameStats();$("pregameLogged").textConten
 function renderPrematch(m,surface="Hard"){
   if(m.error) return `<div class="result-card"><div class="result-title">No model result</div><p class="missing-list">${esc(m.error)}</p></div>`;
   const tier=m.grade>=settings.strong?"STRONG":m.grade>=settings.good?"GOOD":"WATCH";
+  const poissonScores=(m.poisson?.set.scores||[]).slice(0,3);
+  const poissonHtml=poissonScores.length?`<div class="poisson-panel"><div class="poisson-title">Poisson set-score projection</div><div class="poisson-scores">${poissonScores.map(x=>`<span><strong>${x.fav}–${x.opp}</strong> ${Math.round(x.probability*100)}%</span>`).join("")}</div><div class="poisson-note">Close-set probability: ${Math.round(m.poisson.set.closeSetMass*100)}%. Exact 2–1 needs at least 28.5% model probability, 31% close-set probability, 30% recent three-set rate, and 6 matches of history for both players.</div></div>`:"";
   return `<div class="result-card">
     <div class="result-score">${m.grade}</div>
     <div class="result-title">${tier}: ${esc(m.fav.name)}</div>
@@ -528,12 +536,14 @@ function renderPrematch(m,surface="Hard"){
       <div class="prob"><span>2–0 model</span><strong>${Math.round(m.p20*100)}%</strong></div>
       <div class="prob"><span>2–1 model</span><strong>${Math.round(m.p21*100)}%</strong></div>
     </div>
+    ${poissonHtml}
     <ul class="reason-list">
       <li>Overall Elo edge: ${m.eloEdge>=0?"+":""}${m.eloEdge}</li>
       <li>${esc(surface)} Elo edge: ${m.surfaceEdge>=0?"+":""}${m.surfaceEdge}</li>
       <li>${esc(m.fav.name)} last 10: ${m.fav.last10}-${Math.max(0,m.fav.played10-m.fav.last10)}</li>
       <li>${esc(m.fav.name)} ${esc(surface)} last 10: ${m.fav.surface10}-${Math.max(0,m.fav.splayed-m.fav.surface10)}</li>
-      <li>3-set frequency: ${m.fav.threeSet}/10 vs ${m.opp.threeSet}/10</li>
+      <li>3-set frequency: ${m.fav.threeSet}/${m.fav.played10} vs ${m.opp.threeSet}/${m.opp.played10}</li>
+      <li>Exact 2–1 filter: ${m.exact21Qualified?"qualified":"not enough exact-score evidence; use the moneyline lean"}</li>
     </ul>
   </div>`;
 }
@@ -716,10 +726,32 @@ function fillAnalyzerFromMatch(m,a,b,surface){
     <strong>Auto-fill status</strong>
     <span class="available-list">Auto: ${available.length?available.join(", "):"none"}</span>
     <span class="missing-list">Red/manual: ${missing.join(", ")}</span>
-    <span>Current live score: ${esc(scoreText(m)||"not available")} ${s.server?`· server: ${s.server===1?esc(api1):esc(api2)}`:""}</span>`;
+    <span class="current-live-score">Current live score: ${esc(scoreText(m)||"not available")} ${s.server?`· server: ${s.server===1?esc(api1):esc(api2)}`:""}</span>`;
 
   nav("analyzer");
   if(typeof SportScore!=="undefined"&&SportScore.proxy()&&m?.id)hydrateSportScoreAnalyzer(m,favIsP1,available);
+}
+
+function syncOpenAnalyzerScore(matches){
+  if(!currentAnalyzerMatch)return;
+  const latest=(matches||[]).find(m=>String(m?.id??"")===String(currentAnalyzerMatch?.id??""))
+    ||(matches||[]).find(m=>canonicalMatchKey(m)===canonicalMatchKey(currentAnalyzerMatch));
+  if(!latest)return;
+  currentAnalyzerMatch=latest;
+  const api1=pName(latest,1),api2=pName(latest,2),fav=$("favName").value;
+  const favP=findPlayer(fav),p1P=findPlayer(api1);
+  const favIsP1=favP&&p1P?norm(favP.name)===norm(p1P.name):norm(fav)===norm(api1);
+  const set1=completedSet(latest,0);
+  if(set1){
+    $("favGames").value=favIsP1?set1.a:set1.b;
+    $("oppGames").value=favIsP1?set1.b:set1.a;
+    $("lostSet").value=((favIsP1&&set1.winner===2)||(!favIsP1&&set1.winner===1))?"yes":"no";
+    ["favGames","oppGames","lostSet"].forEach(id=>markField(id,"auto"));
+  }
+  const s=scoreObj(latest);
+  let scoreLine=$("autofillStatus").querySelector(".current-live-score");
+  if(!scoreLine){scoreLine=document.createElement("span");scoreLine.className="current-live-score";$("autofillStatus").appendChild(scoreLine);}
+  scoreLine.textContent=`Current live score: ${scoreText(latest)||"not available"}${s.server?` · server: ${s.server===1?api1:api2}`:""}`;
 }
 
 function statPercent(value){const m=String(value??"").match(/\((\d+(?:\.\d+)?)%\)/);return m?Number(m[1]):null}
@@ -767,6 +799,7 @@ async function refreshLive(){
     const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
     STORE.set("te2-live-cache",{time:Date.now(),data});
+    syncOpenAnalyzerScore(data);
     if(typeof deciderScan==="function")deciderScan(data);
     $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
     populateTournamentFilters();renderTournamentFilteredViews();
@@ -775,6 +808,7 @@ async function refreshLive(){
   }catch(err){
     const cached=STORE.get("te2-live-cache",null);
     if(cached?.data?.length){
+      syncOpenAnalyzerScore(cached.data);
       $("liveUpdated").textContent=`Cached ${new Date(cached.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · provider limit reached`;
       populateTournamentFilters();renderTournamentFilteredViews();
     }else $("liveMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
@@ -1059,7 +1093,7 @@ let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.11",{updateViaCache:"none"});
+  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.12",{updateViaCache:"none"});
   await reg.update();
 });
 

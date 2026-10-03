@@ -57,3 +57,5 @@ input,select{width:100%;background:#091424;color:var(--text);border:1px solid va
 .tournament-card{margin-bottom:12px}
 .time-source{display:block;margin-top:3px;font-size:9px;color:var(--muted)}
 .time-tbd{color:#f2c968!important}
+
+.poisson-panel{margin:14px 0;padding:13px;background:#081321;border:1px solid #27405f;border-radius:14px;text-align:left}.poisson-title{font-weight:850;color:#bfdbfe;margin-bottom:8px}.poisson-scores{display:flex;gap:8px;flex-wrap:wrap}.poisson-scores span{background:#13243b;border-radius:9px;padding:7px 10px;color:#bfd0e6}.poisson-scores strong{color:#fff}.poisson-note{font-size:12px;line-height:1.45;color:#91a7c4;margin-top:9px}
