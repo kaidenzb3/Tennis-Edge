@@ -1185,22 +1185,6 @@ $("modelTournamentFilter").onchange=e=>setTournamentFilter(e.target.value);
 let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
-if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  try{
-    const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.18",{updateViaCache:"none"});
-    let refreshing=false;
-    navigator.serviceWorker.addEventListener("controllerchange",()=>{
-      if(refreshing)return;
-      refreshing=true;
-      window.location.reload();
-    });
-    await reg.update();
-  }catch(err){
-    console.warn("Service worker update delayed; the online app can still run.",err);
-  }
-});
-
-
 function migrateHistoricalCache(){
   // Older builds attempted to store the entire ~50-column historical CSV.
   // Convert any surviving old cache into the compact six-field format.
