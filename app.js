@@ -1186,8 +1186,18 @@ let deferredPrompt;
 window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; $("installBtn").hidden=false; });
 $("installBtn").onclick=async()=>{ if(!deferredPrompt)return; deferredPrompt.prompt(); await deferredPrompt.userChoice; deferredPrompt=null; $("installBtn").hidden=true; };
 if("serviceWorker" in navigator) window.addEventListener("load",async()=>{
-  const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.13",{updateViaCache:"none"});
-  await reg.update();
+  try{
+    const reg=await navigator.serviceWorker.register("service-worker.js?v=3.0.17",{updateViaCache:"none"});
+    let refreshing=false;
+    navigator.serviceWorker.addEventListener("controllerchange",()=>{
+      if(refreshing)return;
+      refreshing=true;
+      window.location.reload();
+    });
+    await reg.update();
+  }catch(err){
+    console.warn("Service worker update delayed; the online app can still run.",err);
+  }
 });
 
 
