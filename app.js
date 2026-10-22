@@ -12,6 +12,7 @@ let modelCache = {};
 let liveTimer = null;
 let notified = new Set(STORE.get("te2-notified",[]));
 let currentAnalyzerMatch = null;
+let liveFeedError = null, upcomingFeedError = null;
 
 // ---------- Utilities ----------
 function esc(s){ return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
@@ -39,8 +40,8 @@ async function fetchWithRetry(url,options={},attempts=3){
   throw lastError||new Error("Network request failed.");
 }
 function yyyy(){ return new Date().getFullYear(); }
-function matchStartRaw(m){return m?.scheduled_time||m?._fixture_start_time||m?.start_time||m?.start_at||m?.scheduled_at||m?.scheduled||m?.date_time||m?.datetime||m?.match_time||m?.time||m?.starts_at||m?.start_date||null;}
-function matchStartDate(m){const raw=matchStartRaw(m);if(!raw)return null;if(typeof raw==="number"){const d=new Date(raw<1e12?raw*1000:raw);return isNaN(d)?null:d;}const d=new Date(raw);return isNaN(d)?null:d;}
+function matchStartRaw(m){return MatchSchedule.startRaw(m)}
+function matchStartDate(m){return MatchSchedule.startDate(m)}
 function matchEventDateRaw(m){return m?._fixture_event_date||m?.event_date||null;}
 function matchEventDate(m){const raw=matchEventDateRaw(m);if(!raw)return null;if(/^\d{4}-\d{2}-\d{2}$/.test(String(raw))){const [y,mo,d]=String(raw).split("-").map(Number);return new Date(y,mo-1,d,12,0,0);}const dt=new Date(raw);return isNaN(dt)?null:dt;}
 function formatMatchTime(m){const d=matchStartDate(m);if(d)return d.toLocaleString([],{weekday:"short",month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});const ed=matchEventDate(m);return ed?`${ed.toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"})} · Time TBD`:"Schedule unavailable";}
@@ -518,8 +519,15 @@ function enrichUpcomingWithFixtures(matches,fixtures){
 }
 function tournamentValue(m){return tournamentName(m)||"Unknown";}
 function currentTournamentFilter(){return STORE.get("te2-tournament-filter","all");}
+function cachedUpcomingMatches(){return MatchSchedule.cachedUpcoming(STORE.get("te2-upcoming-cache",null))}
+function upcomingEmptyMessage(){
+  if(upcomingFeedError)return upcomingFeedError;
+  const cached=STORE.get("te2-upcoming-cache",null);
+  if(cached?.data?.length&&!cachedUpcomingMatches().length)return "The saved schedule is out of date. Past fixtures are hidden. Refresh to load current matches.";
+  return cached?"No upcoming matches in this tournament.":"The upcoming schedule has not been refreshed yet.";
+}
 function uniqueTournaments(){
-  const all=[...(STORE.get("te2-live-cache",null)?.data||[]),...(STORE.get("te2-upcoming-cache",null)?.data||[])];
+  const all=[...(STORE.get("te2-live-cache",null)?.data||[]),...(cachedUpcomingMatches())];
   return [...new Set(all.map(tournamentValue).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
 }
 function populateTournamentFilters(){
@@ -541,15 +549,16 @@ function setTournamentFilter(v){
   renderTournamentFilteredViews();
 }
 function renderModelBoardFiltered(){
-  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
-  $("modelBoard").innerHTML=up.length?up.map(modelMatchCard).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
+  const up=applyTournamentFilter(cachedUpcomingMatches());
+  $("modelBoard").innerHTML=up.length?up.map(modelMatchCard).join(""):`<div class="empty card">${esc(upcomingEmptyMessage())}</div>`;
 }
 function renderTournamentFilteredViews(){
   const live=applyTournamentFilter(STORE.get("te2-live-cache",null)?.data||[]);
-  const up=applyTournamentFilter(STORE.get("te2-upcoming-cache",null)?.data||[]);
+  const up=applyTournamentFilter(cachedUpcomingMatches());
   const filtered=currentTournamentFilter()!=="all";
-  $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):`<div class="empty card"><strong>API connected ✓</strong><br>${filtered?"No live WTA singles matches in this tournament.":"No WTA singles matches are live right now. Tennis Edge will check again automatically."}</div>`;
-  $("upcomingMatches").innerHTML=up.length?up.map(m=>liveMatchCard(m,false)).join(""):'<div class="empty card">No upcoming matches in this tournament.</div>';
+  const cachedLive=STORE.get("te2-live-cache",null);
+  $("liveMatches").innerHTML=live.length?live.map(m=>liveMatchCard(m,true)).join(""):`<div class="empty card">${!liveFeedError&&cachedLive?"<strong>API connected ✓</strong><br>":""}${esc(liveFeedError||(!cachedLive?"Live scores have not been refreshed yet.":filtered?"No live WTA singles matches in this tournament.":"No WTA singles matches are live right now. Tennis Edge will check again automatically."))}</div>`;
+  $("upcomingMatches").innerHTML=up.length?up.map(m=>liveMatchCard(m,false)).join(""):`<div class="empty card">${esc(upcomingEmptyMessage())}</div>`;
   renderModelBoardFiltered();bindMatchButtons();
 }
 
@@ -562,7 +571,7 @@ function logPregameModel(m){
   if(existing){if(!existing.scheduled&&row.scheduled)existing.scheduled=row.scheduled;}else log.unshift(row);
   savePregameStore(log);
 }
-function logUpcomingBoard(matches){for(const m of matches)logPregameModel(m);renderPregameLog();}
+function logUpcomingBoard(matches){for(const m of matches.filter(m=>MatchSchedule.isUpcoming(m)))logPregameModel(m);renderPregameLog();}
 function pregameStats(){const log=pregameStore(),graded=log.filter(x=>x.status==="win"||x.status==="loss"),winner=graded.filter(x=>x.winnerHit!==null),exact=graded.filter(x=>x.exactHit!==null),strong=winner.filter(x=>x.tier==="STRONG"),pct2=(arr,k)=>arr.length?Math.round(arr.filter(x=>x[k]===true).length/arr.length*100):null,byLean=l=>exact.filter(x=>x.lean===l);return{logged:log.length,winnerPct:pct2(winner,"winnerHit"),exactPct:pct2(exact,"exactHit"),strongPct:pct2(strong,"winnerHit"),p20Pct:pct2(byLean("2–0"),"exactHit"),p21Pct:pct2(byLean("2–1"),"exactHit")};}
 function setPct(id,v){$(id).textContent=v==null?"—":`${v}%`;}
 function manualGradePregame(index,result){const log=pregameStore(),row=log[index];if(!row)return;if(result==="void"){row.status="void";row.winnerHit=null;row.exactHit=null}else if(result==="winner"){row.status="win";row.winnerHit=true;row.exactHit=row.lean==="ML"?true:row.exactHit}else if(result==="loser"){row.status="loss";row.winnerHit=false;row.exactHit=false}else if(result==="exact"){row.status="win";row.winnerHit=true;row.exactHit=true}row.gradedAt=Date.now();savePregameStore(log);renderPregameLog();}
@@ -745,7 +754,7 @@ function liveMatchCard(m,live=true){
 function findCachedMatch(id,a,b){
   const all=[
     ...(STORE.get("te2-live-cache",null)?.data||[]),
-    ...(STORE.get("te2-upcoming-cache",null)?.data||[])
+    ...(cachedUpcomingMatches())
   ];
   return all.find(m=>String(m.id||"")===String(id||""))
       || all.find(m=>norm(pName(m,1))===norm(a)&&norm(pName(m,2))===norm(b))
@@ -890,6 +899,7 @@ async function refreshLive(){
   try{
     const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
+    liveFeedError=null;
     const source=SportScore.status();
     STORE.set("te2-live-cache",{time:source.at,data});
     syncOpenAnalyzerScore(data);
@@ -900,8 +910,9 @@ async function refreshLive(){
     if(source.stale)setSourceError("Showing cached live scores while SportScore is cooling down.");
     maybeNotify(data);
   }catch(err){
+    liveFeedError=err.message||String(err);
     const cached=STORE.get("te2-live-cache",null);
-    if(cached?.data?.length){
+    if(Array.isArray(cached?.data)){
       syncOpenAnalyzerScore(cached.data);
       $("liveUpdated").textContent=`Cached ${new Date(cached.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · provider limit reached`;
       populateTournamentFilters();renderTournamentFilteredViews();
@@ -918,6 +929,7 @@ async function refreshUpcoming(){
   try{
     const mj=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(mj);
+    upcomingFeedError=null;
     const source=SportScore.status();
     STORE.set("te2-upcoming-cache",{time:source.at,data});
     if(typeof deciderObserveUpcoming==="function")deciderObserveUpcoming(data);
@@ -927,9 +939,10 @@ async function refreshUpcoming(){
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
     if(source.stale)setSourceError("Showing cached schedule while SportScore is cooling down.");
   }catch(err){
+    upcomingFeedError=err.message||String(err);
     const cached=STORE.get("te2-upcoming-cache",null);
     if(Array.isArray(cached?.data)){populateTournamentFilters();renderTournamentFilteredViews()}
-    else $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
+    else renderTournamentFilteredViews();
     setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
     $("refreshUpcomingBtn").textContent="Load"; $("refreshUpcomingBtn").disabled=false;
@@ -1141,7 +1154,7 @@ function refreshAllModelViews(){
   updateAnalyzerProfile(true);
 
   const live=STORE.get("te2-live-cache",null)?.data||[];
-  const up=STORE.get("te2-upcoming-cache",null)?.data||[];
+  const up=cachedUpcomingMatches();
 
   if(live.length){
     $("liveMatches").innerHTML=live.map(m=>liveMatchCard(m,true)).join("");
@@ -1160,7 +1173,7 @@ function refreshAllModelViews(){
 function loadCaches(){
   const live=STORE.get("te2-live-cache",null),up=STORE.get("te2-upcoming-cache",null);
   if(live?.data)$("liveUpdated").textContent=`Cached ${new Date(live.time).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}`;
-  if(up?.data)logUpcomingBoard(up.data);
+  if(up?.data)logUpcomingBoard(cachedUpcomingMatches());
   populateTournamentFilters();renderTournamentFilteredViews();
 }
 

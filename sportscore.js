@@ -5,6 +5,7 @@ const SportScore=(()=>{
   // have saved an obsolete Worker URL, so always use the verified endpoint.
   const proxy=()=>DEFAULT_PROXY;
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const schedule=typeof module!=="undefined"?require("./schedule.js"):MatchSchedule;
   const policy=typeof module!=="undefined"?require("./request-cache.js"):RequestCache;
   const memory=new Map(),prefix="te-sportscore-v1:";
   const read=key=>{try{return JSON.parse(localStorage.getItem(prefix+key))||memory.get(key)}catch(_){return memory.get(key)}};
@@ -41,7 +42,7 @@ const SportScore=(()=>{
     const h=home(e),a=away(e),winnerCode=e?.winner_code??e?.winnerCode;
     const winner=winnerCode===1?h:winnerCode===2?a:null;
     const status=typeof e?.status==="string"?e.status:(e?.status?.type||e?.status?.description||"");
-    const start=e?.start_at?`${String(e.start_at).replace(" ","T")}Z`:(e?.startTimestamp?new Date(Number(e.startTimestamp)*1000).toISOString():null);
+    const start=e?.start_at?(/(?:Z|[+-]\d{2}:?\d{2})$/.test(String(e.start_at))?String(e.start_at):`${String(e.start_at).replace(" ","T")}Z`):(e?.startTimestamp?new Date(Number(e.startTimestamp)*1000).toISOString():null);
     return {id:String(e.id),players:{p1:{id:h?.id,name:h?.name,rank:h?.ranking??h?.playerTeamInfo?.currentRanking??null},p2:{id:a?.id,name:a?.name,rank:a?.ranking??a?.playerTeamInfo?.currentRanking??null}},
       tournament:e?.challenge?.name||e?.tournament?.name||e?.league?.name||"WTA",round:e?.round_info?.name||e?.roundInfo?.name||"",surface:surface(e?.ground_type||e?.groundType),start_at:start,status,status_detail:e?.status_more||e?.status?.description||"",
       winner:winner?{name:winner.name}:null,score:score(e),main_odds:e?.main_odds||null,_sportscore:e};
@@ -61,7 +62,7 @@ const SportScore=(()=>{
     lastStatus={stale:statuses.some(s=>s.stale),at:Math.min(...statuses.map(s=>s.at))};
     return good;
   }
-  async function scheduled(){const batches=await dateBatches([0,1,2]);return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}
+  async function scheduled(){const batches=await dateBatches([0,1,2]);return batches.flatMap(list).filter(m=>schedule.isUpcoming(m))}
   async function completed(){const batches=await dateBatches([-1,0]);return batches.flatMap(list).filter(m=>m.winner||/finished|completed/i.test(m.status||""))}
   const stats=async id=>rows(await req("stats",{id}));
   const points=async id=>rows(await req("points",{id}));

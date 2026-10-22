@@ -15,7 +15,7 @@
       const fallback=()=>cached&&now()-cached.at<STALE?{...cached,stale:true,retryAt:state.until}:null;
       if(state.until>time){
         const old=fallback();if(old)return old;
-        throw Object.assign(new Error("SportScore is cooling down. Please try later."),{status:state.status||429,retryAt:state.until});
+        throw Object.assign(new Error(`SportScore is cooling down until ${new Date(state.until).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}. Saved data is shown when available.`),{status:state.status||429,retryAt:state.until});
       }
       try{
         const response=await fetcher(key);
@@ -41,7 +41,9 @@
         state.until=now()+Math.max(retryDelay(err.retryAfter,now()),Math.min(3600000,base*2**Math.min(failures-1,6)));
         await write("cooldown",state);
         const old=fallback();if(old)return old;
-        err.retryAt=state.until;throw err;
+        err.retryAt=state.until;
+        if(err.status===429)err.message=`SportScore is rate-limited until at least ${new Date(state.until).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})}. Saved data is shown when available.`;
+        throw err;
       }
     }
     return {get(key,action){
