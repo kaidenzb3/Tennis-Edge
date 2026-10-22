@@ -12,7 +12,7 @@ const deciderOdds=(state,id)=>{
 };
 const deciderMatches=()=>{
   const state=DeciderStore.read(),all=new Map();
-  for(const m of [...state.manual,...(STORE.get("te2-upcoming-cache",null)?.data||[]),...(STORE.get("te2-live-cache",null)?.data||[])]){
+  for(const m of [...state.manual,...cachedUpcomingMatches(),...(STORE.get("te2-live-cache",null)?.data||[])]){
     if(!deciderManual(m)&&typeof SportScore!=="undefined"&&!SportScore.wta(m._sportscore||m))continue;
     all.set(deciderId(m),m);
   }

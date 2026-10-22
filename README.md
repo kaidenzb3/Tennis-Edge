@@ -39,7 +39,9 @@ The browser protections work with the existing proxy; shared protection across a
 - The proxy spaces upstream cache misses by at least 1 second and bounds persistent response storage to 200 entries. It permits only the supported actions and nearby schedule dates. There is no periodic proxy polling.
 - These controls reduce traffic; they cannot restore an exhausted provider subscription quota. Longer quota reset periods should be supplied by the provider through Retry-After.
 
-Run all local tests with `node --test tests.js rate-limit.test.js`. Proxy tests mock the Durable Object storage and upstream; they do not replace a Cloudflare deployment smoke test.
+Upcoming and Model boards revalidate cached fixtures at render time: started, finished, cancelled, past-date, undated, and older-than-24-hour cached schedules are excluded. Historical pregame picks and grading records remain stored. This prevents October 7 fixtures from remaining on a current board during a provider outage. The adapter also preserves timestamps that already contain UTC or timezone offsets.
+
+Run all local tests with `node --test tests.js rate-limit.test.js schedule.test.js`. Proxy tests mock the Durable Object storage and upstream; they do not replace a Cloudflare deployment smoke test.
 
 ## Existing model
 

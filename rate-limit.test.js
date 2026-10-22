@@ -23,7 +23,7 @@ test("Retry-After supports seconds, dates, zero and malformed values",()=>{
 });
 test("429 cooldown survives restart, blocks other keys, then backs off",async()=>{
   const f=fixture(()=>new Response("",{status:429,headers:{"Retry-After":"900"}}));
-  await assert.rejects(f.cache.get("a","date"),e=>e.status===429);
+  await assert.rejects(f.cache.get("a","date"),e=>e.status===429&&/rate-limited until at least/.test(e.message));
   await assert.rejects(f.restart().get("b","date"),e=>e.status===429);
   assert.equal(f.calls(),1);
   f.advance(900000);await assert.rejects(f.cache.get("a","date"));
@@ -59,7 +59,7 @@ test("browser adapter shares cache across reloads and preserves stale metadata",
   const vm=require("node:vm"),fs=require("node:fs"),db=new Map();let calls=0,fail=false;
   const localStorage={getItem:k=>db.get(k)||null,setItem:(k,v)=>db.set(k,v)};
   function browser(){
-    const context=vm.createContext({URL,AbortSignal,localStorage,setTimeout,RequestCache:require("./request-cache.js"),
+    const context=vm.createContext({URL,AbortSignal,localStorage,setTimeout,RequestCache:require("./request-cache.js"),MatchSchedule:require("./schedule.js"),
       fetch:async()=>{calls++;return fail?new Response("",{status:429,headers:{"Retry-After":"600"}}):ok({data:[]})}});
     vm.runInContext(fs.readFileSync("sportscore.js","utf8")+"\nglobalThis.adapter=SportScore",context);
     return context.adapter;
