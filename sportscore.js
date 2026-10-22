@@ -5,24 +5,22 @@ const SportScore=(()=>{
   // have saved an obsolete Worker URL, so always use the verified endpoint.
   const proxy=()=>DEFAULT_PROXY;
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const policy=typeof module!=="undefined"?require("./request-cache.js"):RequestCache;
+  const memory=new Map(),prefix="te-sportscore-v1:";
+  const read=key=>{try{return JSON.parse(localStorage.getItem(prefix+key))||memory.get(key)}catch(_){return memory.get(key)}};
+  const write=(key,value)=>{memory.set(key,value);try{localStorage.setItem(prefix+key,JSON.stringify(value))}catch(_){}};
+  const requests=policy.create({read,write,fetcher:key=>fetch(key,{cache:"no-store",mode:"cors",credentials:"omit",signal:AbortSignal.timeout(15000)})});
+  let lastStatus={stale:false};
   const req=async(action,params={})=>{
     if(!proxy())throw new Error("Add the SportScore proxy address in Settings.");
     const u=new URL(proxy());u.searchParams.set("action",action);
-    u.searchParams.set("client","web-18");
-    for(const [k,v] of Object.entries(params))if(v!=null)u.searchParams.set(k,v);
-    let lastError;
-    for(let attempt=0;attempt<2;attempt++){
-      try{
-        const r=await fetch(u,{cache:"no-store",mode:"cors",credentials:"omit"});
-        const body=await r.json().catch(()=>({}));
-        if(!r.ok)throw new Error(body.error||`SportScore returned ${r.status}`);
-        return body;
-      }catch(err){
-        lastError=err;
-        if(attempt===0)await pause(650);
-      }
-    }
-    throw lastError||new Error("SportScore request failed.");
+    for(const [k,v] of Object.entries(params).sort())if(v!=null)u.searchParams.set(k,v);
+    // One origin-wide lock also serializes requests from other open tabs.
+    const load=()=>requests.get(u.toString(),action);
+    const result=typeof navigator!=="undefined"&&navigator.locks?
+      await navigator.locks.request("tennis-edge-sportscore",load):await load();
+    lastStatus={stale:result.stale,at:result.at};
+    return result.body;
   };
   const rows=j=>Array.isArray(j)?j:Array.isArray(j?.data)?j.data:[];
   const home=e=>e?.home_team||e?.homeTeam||{};
@@ -52,13 +50,15 @@ const SportScore=(()=>{
   const dates=offsets=>offsets.map(i=>{const d=new Date();d.setDate(d.getDate()+i);return d.toISOString().slice(0,10)});
   async function live(){return list(await req("live"))}
   async function dateBatches(offsets){
-    const good=[];let lastError;
+    const good=[],statuses=[];let lastError;
     for(const date of dates(offsets)){
-      try{good.push(await req("date",{date}));}
-      catch(err){lastError=err;}
+      try{good.push(await req("date",{date}));statuses.push(lastStatus);}
+      catch(err){lastError=err;if(err.retryAt>Date.now())break;}
       if(offsets.length>1)await pause(180);
     }
-    if(!good.length)throw lastError||new Error("Tennis schedule connection failed.");
+    if(lastError)throw lastError;
+    if(!good.length)throw new Error("Tennis schedule connection failed.");
+    lastStatus={stale:statuses.some(s=>s.stale),at:Math.min(...statuses.map(s=>s.at))};
     return good;
   }
   async function scheduled(){const batches=await dateBatches([0,1,2]);return batches.flatMap(list).filter(m=>!/inprogress|live|finished|completed/i.test(m.status||"")&&!m.winner&&(!m.start_at||new Date(m.start_at).getTime()>Date.now()))}
@@ -67,6 +67,7 @@ const SportScore=(()=>{
   const points=async id=>rows(await req("points",{id}));
   const markets=async id=>rows(await req("markets",{id}));
   function statMap(items){const out={};for(const x of items)out[x.name]={home:x.home,away:x.away,period:x.period};return out}
-  return {proxy,saveProxy:()=>localStorage.removeItem("te-sportscore-proxy"),req,live,scheduled,completed,stats,points,markets,statMap,event,wta};
+  return {proxy,saveProxy:()=>localStorage.removeItem("te-sportscore-proxy"),status:()=>lastStatus,req,live,scheduled,completed,stats,points,markets,statMap,event,wta};
 })();
 if(typeof module!=="undefined")module.exports=SportScore;
+

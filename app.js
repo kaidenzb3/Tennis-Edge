@@ -890,12 +890,14 @@ async function refreshLive(){
   try{
     const j=await apiFetch("/matches?status=live&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(j);
-    STORE.set("te2-live-cache",{time:Date.now(),data});
+    const source=SportScore.status();
+    STORE.set("te2-live-cache",{time:source.at,data});
     syncOpenAnalyzerScore(data);
     if(typeof deciderScan==="function")deciderScan(data);
-    $("liveUpdated").textContent=`Updated ${nowLabel()} · ${data.length} live`;
+    $("liveUpdated").textContent=`${source.stale?"Cached":"Updated"} ${new Date(source.at).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"})} · ${data.length} live${source.stale?" · provider cooling down":""}`;
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
+    if(source.stale)setSourceError("Showing cached live scores while SportScore is cooling down.");
     maybeNotify(data);
   }catch(err){
     const cached=STORE.get("te2-live-cache",null);
@@ -916,15 +918,17 @@ async function refreshUpcoming(){
   try{
     const mj=await apiFetch("/matches?status=upcoming&tour=wta&draw=singles&limit=100");
     const data=unwrapMatches(mj);
-    STORE.set("te2-upcoming-cache",{time:Date.now(),data});
+    const source=SportScore.status();
+    STORE.set("te2-upcoming-cache",{time:source.at,data});
     if(typeof deciderObserveUpcoming==="function")deciderObserveUpcoming(data);
     if(typeof deciderRender==="function")deciderRender();
     logUpcomingBoard(data);
     populateTournamentFilters();renderTournamentFilteredViews();
     setApiConnected(true); setSourceStatus("live","ok"); clearSourceError();
+    if(source.stale)setSourceError("Showing cached schedule while SportScore is cooling down.");
   }catch(err){
     const cached=STORE.get("te2-upcoming-cache",null);
-    if(cached?.data?.length){populateTournamentFilters();renderTournamentFilteredViews()}
+    if(Array.isArray(cached?.data)){populateTournamentFilters();renderTournamentFilteredViews()}
     else $("upcomingMatches").innerHTML=`<div class="empty card">${esc(err.message)}</div>`;
     setApiConnected(false); setSourceStatus("live","bad"); setSourceError(err.message||String(err));
   }finally{
@@ -1128,7 +1132,7 @@ $("saveSettingsBtn").onclick=()=>{
 };
 function configureTimer(){
   if(liveTimer) clearInterval(liveTimer);
-  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(refreshLive,2*60*1000);
+  if(settings.autoRefresh&&getApiKey()) liveTimer=setInterval(()=>{if(!document.hidden)refreshLive()},5*60*1000);
 }
 
 // ---------- Cache / cross-tab refresh ----------
@@ -1225,6 +1229,7 @@ if(getApiKey()){
   const upcomingCache=STORE.get("te2-upcoming-cache",null);
   if(!upcomingCache?.time||Date.now()-upcomingCache.time>2*60*60*1000)setTimeout(refreshUpcoming,2200);
   setTimeout(()=>refreshPregameResults(true),6500);
-  setInterval(()=>refreshPregameResults(true),15*60*1000);
+  setInterval(()=>{if(settings.autoRefresh&&!document.hidden)refreshPregameResults(true)},30*60*1000);
 }
 setInterval(()=>{renderTournamentFilteredViews();},60000);
+

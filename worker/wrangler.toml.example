@@ -1,0 +1,17 @@
+name = "tennis-edge-api"
+main = "sportscore-proxy.mjs"
+compatibility_date = "2026-10-22"
+
+[vars]
+ALLOWED_ORIGIN = "https://kaidenzb3.github.io"
+# Confirm the prefix against the existing Worker/provider before deployment.
+SPORTSCORE_API_PREFIX = ""
+
+[[durable_objects.bindings]]
+name = "SPORTSCORE_CACHE"
+class_name = "SportScoreCache"
+
+[[migrations]]
+tag = "v1-sportscore-cache"
+new_sqlite_classes = ["SportScoreCache"]
+
