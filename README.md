@@ -56,4 +56,3 @@ Tennis Edge continues calculating overall Elo, surface Elo, recent form, and its
 - `service-worker.js`, `manifest.webmanifest`: v3.0 PWA cache and description.
 
 No API keys belong in this repository.
-

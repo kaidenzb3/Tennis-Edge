@@ -14,4 +14,3 @@ class_name = "SportScoreCache"
 [[migrations]]
 tag = "v1-sportscore-cache"
 new_sqlite_classes = ["SportScoreCache"]
-

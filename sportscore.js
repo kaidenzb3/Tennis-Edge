@@ -70,4 +70,3 @@ const SportScore=(()=>{
   return {proxy,saveProxy:()=>localStorage.removeItem("te-sportscore-proxy"),status:()=>lastStatus,req,live,scheduled,completed,stats,points,markets,statMap,event,wta};
 })();
 if(typeof module!=="undefined")module.exports=SportScore;
-

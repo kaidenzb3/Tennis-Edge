@@ -94,4 +94,3 @@ test("worker validates routes, deduplicates globally, persists cache and exposes
     assert.equal((await worker.default.fetch(new Request(request,{method:"POST"}),env)).status,405);
   }finally{global.fetch=original}
 });
-

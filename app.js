@@ -1232,4 +1232,3 @@ if(getApiKey()){
   setInterval(()=>{if(settings.autoRefresh&&!document.hidden)refreshPregameResults(true)},30*60*1000);
 }
 setInterval(()=>{renderTournamentFilteredViews();},60000);
-
