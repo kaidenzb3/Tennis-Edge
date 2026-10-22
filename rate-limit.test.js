@@ -73,6 +73,9 @@ test("browser adapter shares cache across reloads and preserves stale metadata",
 });
 test("worker validates routes, deduplicates globally, persists cache and exposes metadata",async()=>{
   const worker=await import("./worker/sportscore-proxy.mjs");
+  assert.equal(worker.route(new URL("https://proxy/?action=points&id=123")).path,"/events/123/tennis-points");
+  assert.equal(worker.route(new URL("https://proxy/?action=event&id=123")).path,"/events/123");
+  assert.equal(worker.route(new URL("https://proxy/?action=rankings")).path,"/tennis-rankings/wta?page=1");
   assert.throws(()=>worker.route(new URL("https://proxy/?action=stats&id=../secret")));
   assert.throws(()=>worker.route(new URL("https://proxy/?action=date&date=2020-01-01")));
   const db=new Map();const storage={get:async k=>db.get(k),put:async(k,v)=>db.set(k,v),list:async()=>new Map(db),delete:async keys=>keys.forEach(k=>db.delete(k))};

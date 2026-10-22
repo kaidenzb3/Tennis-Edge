@@ -3,12 +3,17 @@ import "../request-cache.js";
 const policy=globalThis.RequestCache;
 export function route(url){
   const action=url.searchParams.get("action"),id=url.searchParams.get("id"),date=url.searchParams.get("date");
-  if(action==="live")return {action,path:"/sports/2/events/live"};
+  if(action==="live")return {action,path:"/sports/2/events/live?page=1"};
   if(action==="date"&&/^\d{4}-\d{2}-\d{2}$/.test(date||"")){
     const day=Date.parse(date+"T00:00:00Z"),today=Date.parse(new Date().toISOString().slice(0,10)+"T00:00:00Z");
-    if(Math.abs(day-today)<=3*86400000)return {action,path:`/sports/2/events/date/${date}`};
+    if(Math.abs(day-today)<=3*86400000)return {action,path:`/sports/2/events/date/${date}?page=1`};
   }
-  const suffix={stats:"statistics",points:"incidents",markets:"markets"}[action];
+  if(action==="event"&&/^\d{1,12}$/.test(id||""))return {action,path:`/events/${id}`};
+  if(action==="rankings"){
+    const page=url.searchParams.get("page")||"1";
+    if(/^[1-9]\d?$/.test(page))return {action,path:`/tennis-rankings/wta?page=${page}`};
+  }
+  const suffix={stats:"statistics",points:"tennis-points",markets:"markets"}[action];
   if(suffix&&/^\d{1,12}$/.test(id||""))return {action,path:`/events/${id}/${suffix}`};
   throw new Error("Unsupported SportScore request");
 }
@@ -57,8 +62,9 @@ export class SportScoreCache{
 export default {
   async fetch(request,env){
     const origin=request.headers.get("Origin");
-    if(origin&&origin!==env.ALLOWED_ORIGIN)return new Response("Origin not allowed",{status:403});
-    const cors={"Access-Control-Allow-Origin":env.ALLOWED_ORIGIN,"Vary":"Origin","Access-Control-Allow-Methods":"GET, OPTIONS","Access-Control-Expose-Headers":"Retry-After, X-Data-Timestamp, X-Data-Stale","Cache-Control":"no-store"};
+    const allowed=(env.ALLOWED_ORIGIN||"https://kaidenzb3.github.io,https://tennis-edge.kaidenzb3.workers.dev").split(",").map(x=>x.trim()).filter(Boolean);
+    if(origin&&!allowed.includes(origin))return new Response("Origin not allowed",{status:403});
+    const cors={"Access-Control-Allow-Origin":origin||allowed[0],"Vary":"Origin","Access-Control-Allow-Methods":"GET, OPTIONS","Access-Control-Allow-Headers":"Content-Type","Access-Control-Expose-Headers":"Retry-After, X-Data-Timestamp, X-Data-Stale","Cache-Control":"no-store"};
     if(request.method==="OPTIONS")return new Response(null,{status:204,headers:cors});
     if(request.method!=="GET")return new Response("Method not allowed",{status:405,headers:cors});
     try{route(new URL(request.url))}catch(_){return Response.json({error:"Unsupported request"},{status:400,headers:cors})}

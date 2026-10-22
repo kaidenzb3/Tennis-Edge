@@ -1,10 +1,11 @@
 name = "tennis-edge-api"
 main = "sportscore-proxy.mjs"
-compatibility_date = "2026-10-22"
+compatibility_date = "2026-09-24"
+keep_vars = true
 
 [vars]
-ALLOWED_ORIGIN = "https://kaidenzb3.github.io"
-# Confirm the prefix against the existing Worker/provider before deployment.
+ALLOWED_ORIGIN = "https://kaidenzb3.github.io,https://tennis-edge.kaidenzb3.workers.dev"
+# Verified against the production Worker: SportScore uses no API prefix.
 SPORTSCORE_API_PREFIX = ""
 
 [[durable_objects.bindings]]

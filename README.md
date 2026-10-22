@@ -16,18 +16,18 @@ SportScore's tested market records were marked as pre-match even when a match wa
 
 ## Secure setup
 
-The frontend uses GitHub Pages and the fixed proxy URL `https://tennis-edge-api.kaidenzb3.workers.dev`. No matching Vercel project was found in the connected account. Do not deploy this change to PropLab.
+The frontend is deployed as Cloudflare Worker static assets at `https://tennis-edge.kaidenzb3.workers.dev` from this repository’s `main` branch; GitHub Pages is also a supported origin. It uses the fixed proxy URL `https://tennis-edge-api.kaidenzb3.workers.dev`. No matching Vercel project was found in the connected account. Do not deploy this change to PropLab.
 
 The previously documented Worker source was absent from the repository. The replacement is `worker/sportscore-proxy.mjs`; it requires a Durable Object binding, rather than only pasting a script into the dashboard.
 
-1. Compare the existing Cloudflare Worker with this replacement before deployment, particularly its upstream path prefix and endpoint mappings. The original Worker could not be inspected through the connected services. Confirm live, date, statistics, incidents, and markets routes against the subscribed SportScore API. Set `SPORTSCORE_API_PREFIX` if that subscription requires a prefix such as `/api/v1`.
+1. The production Worker source was inspected in the signed-in Cloudflare dashboard. Its API base is `https://sportscore1.p.rapidapi.com` with no prefix. The replacement preserves the existing live/date page-1, event, tennis-points, statistics, markets and WTA rankings routes.
 2. Copy `worker/wrangler.toml.example` to `worker/wrangler.toml`. Confirm the Cloudflare account and existing Worker name `tennis-edge-api`. Keep any existing deployment configuration that is still needed. For a different frontend origin, update `ALLOWED_ORIGIN`.
-3. From `worker/`, use an authenticated Wrangler CLI to set the encrypted secret: `wrangler secret put RAPIDAPI_KEY`. Never put the key in source control or browser storage.
+3. The existing `tennis-edge-api` Worker already has an encrypted `RAPIDAPI_KEY` secret. Preserve it during deployment; do not retrieve or replace it. For a fresh installation only, use `wrangler secret put RAPIDAPI_KEY` from `worker/`. Never put the key in source control or browser storage.
 4. Deploy with `wrangler deploy`. The included SQLite Durable Object migration and `SPORTSCORE_CACHE` binding are required. All requests use a single named object so caching, deduplication, pacing, and cooldown are shared across visitors and regions.
 5. Smoke-test live, schedule, match detail and completed results. Check `X-Data-Timestamp`, `X-Data-Stale` and `Retry-After`. A forced upstream 429 should retain the last good response and suppress further upstream calls until cooldown ends.
-6. Merge/deploy the frontend changes through the existing GitHub Pages workflow after validation. The script version is bumped to 3.0.20. No Vercel configuration is introduced.
+6. Merge/deploy the frontend changes through the existing Cloudflare Workers Build linked to `kaidenzb3/Tennis-Edge` on `main` after validation. The script version is bumped to 3.0.20. No Vercel configuration is introduced.
 
-Cloudflare deployment and authenticated upstream smoke tests have not been performed by this change. The browser protections work with the existing proxy; shared protection across all visitors requires deploying the replacement Worker.
+The browser protections work with the existing proxy; shared protection across all visitors requires deploying the replacement Worker. Deployment status and live verification are recorded in the pull request.
 
 ## Request policy
 

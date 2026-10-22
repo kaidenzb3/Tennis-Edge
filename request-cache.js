@@ -1,6 +1,6 @@
 /* Shared policy for the browser and the secure proxy. No immediate retries. */
 (function(root){
-  const TTL={live:300000,date:1800000,stats:300000,points:300000,markets:900000};
+  const TTL={live:300000,date:1800000,stats:300000,points:300000,markets:900000,event:300000,rankings:3600000};
   const STALE=24*60*60*1000;
   function retryDelay(value,now=Date.now()){
     if(value==null||String(value).trim()==="")return 0;
